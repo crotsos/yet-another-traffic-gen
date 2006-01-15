@@ -192,7 +192,7 @@ void cl_debug_init(const char *inLogFilePath);
 /* eventually (Win): give option to redirect to OutputDebugString */
 #define CL_LOG_OPEN()                                                          \
     if (gCLDebugStat.logfile_path && gCLDebugStat.logfile_path[0]) {           \
-        gCLDebugStat.logfile = fopen(gCLDebugStat.logfile_path, "a");          \
+        gCLDebugStat.logfile = fopen(gCLDebugStat.logfile_path, "w");          \
         if (gCLDebugStat.logfile == NULL)                                      \
             gCLDebugStat.logfile = stderr;                                     \
     } else {                                                                   \
