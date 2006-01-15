@@ -3,7 +3,7 @@
  *
  *       Filename:  server.c
  *
- *    Description:  isimple libev server. receives a request of bytes and
+ *    Description:  simple libev server. receives a request of bytes and
  *    transits it over the socket. 
  *
  *        Version:  1.0
@@ -179,7 +179,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
     }
     else if (read == sizeof(req_data)) {
       fl->request = req_data;
-      LOG("+ %ld.%06ld:%u:%lu", fl->st.tv_sec, fl->st.tv_usec, 
+      LOG("+ %ld.%06ld:%u:%llu", fl->st.tv_sec, fl->st.tv_usec, 
           fl->id, fl->request);
       ev_io_stop(loop,w);
       ev_io_set(w, w->fd, EV_WRITE);
@@ -203,7 +203,8 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       serv.conns--;
       serv.period_finished++;
       gettimeofday(&fl->end, NULL);
-      LOG("- %ld.%06ld:%d:%.06f:%lu",  
+      LOG("- %ld.%.06ld:%ld.%.06ld:%d:%.06f:%llu",   
+          fl->st.tv_sec, fl->st.tv_usec,  
           fl->end.tv_sec, fl->end.tv_usec, fl->id, 
           time_diff(&fl->st, &fl->end), fl->send);
       free(fl);
@@ -219,7 +220,7 @@ stats_cb (struct ev_loop *loop, struct ev_timer *t, int revents) {
   struct timeval st;
 //  debug_enter("starts_cb");
   gettimeofday(&st, NULL);
- LOG("stat:%ld.%06ld:%lu:%lu:%u", 
+ LOG("stat:%ld.%06ld:%llu:%llu:%u", 
      st.tv_sec, st.tv_usec, serv.period_bytes, serv.period_finished, 
      serv.conns);
  serv.period_bytes = 0;
