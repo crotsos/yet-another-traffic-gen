@@ -1,4 +1,4 @@
-CC_OPTS = -Wall -L/usr/lib/ -g -I./ 
+CC_OPTS = -Wall -L/usr/lib/ -g -I./ `pkg-config --cflags libev` 
 CC_LIBS = -lev -lgsl -lgslcblas -lm -lconfig
 
 
