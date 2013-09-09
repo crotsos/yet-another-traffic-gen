@@ -80,13 +80,13 @@ init_traffic_model (struct traffic_model *t, const char *file) {
   }
 
   if(config_lookup_string(&cfg, "traffic.flow_arrival.type", &name) == CONFIG_TRUE) {
-    if (strcasecmp(name, "constant") == 0)
+    if (!strcasecmp(name, "constant"))
       t->flow_arrival.type = CONSTANT;
-    else if (!strcasecmp(name, "exponential") == 0) 
+    else if (!strcasecmp(name, "exponential")) {
       t->flow_arrival.type = EXPONENTIAL;
-    else if (!strcasecmp(name, "pareto") == 0) 
+    } else if (!strcasecmp(name, "pareto")) { 
       t->flow_arrival.type = PARETO;
-    else { 
+    } else { 
       printf("invalid flow_arrival type value %s", name);
       exit(1);
     }

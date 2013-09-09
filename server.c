@@ -197,7 +197,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
     if ((fl->request - fl->send) < BUFFER_SIZE) 
       read = fl->request - fl->send;
 
-    rcv = send(w->fd, 1460, read, 0);
+    rcv = send(w->fd, buffer, read, 0);
     if((rcv <= 0) || ((fl->send = fl->send + rcv) >= fl->request)) {
       // Stop and free watchet if client socket is closing
       ev_io_stop(loop,w);

@@ -89,18 +89,21 @@ flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct flow *f)
 }
 
 static void
-get_sample(struct model *m, double *r, int len) {
+get_sample(struct model *m, double *ret, int len) {
   int ix;
   for (ix=0; ix < len; ix ++) 
     switch(m->type) {
       case CONSTANT:
-        r[ix] = m->mean;
+        ret[ix] = m->mean;
         break;
       case EXPONENTIAL:
-        r[ix] = gsl_ran_exponential((const gsl_rng *) r, m->mean);
+
+        ret[ix] = gsl_ran_exponential((const gsl_rng *) r, m->mean);
+        //printf("exponential sample %f (mean %f)\n", ret[ix], m->mean);
         break;
       case PARETO:
-        r[ix] = gsl_ran_pareto((const gsl_rng*)r, m->mean, m->alpha);
+        ret[ix] = gsl_ran_pareto((const gsl_rng*)r, m->alpha, m->mean);
+        //printf("pareto sample %f (alpha %f mean %f)\n", ret[ix], m->alpha, m->mean);
         break;
       default:
         printf("Invalid traffic model\n");
@@ -152,7 +155,8 @@ main(int argc, char **argv) {
   else
     init_traffic_model(t, "client.cfg");
 
-  // init my logging 
+  // init my logging
+  unlink(t->logfile);
   cl_debug_init(t->logfile);
 
   // initiliaze the random number generator
