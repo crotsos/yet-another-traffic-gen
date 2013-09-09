@@ -25,6 +25,7 @@
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 
 #include "debug.h"
 #include "traff_gen.h"
@@ -49,7 +50,7 @@ time_diff (struct timeval *start, struct timeval *end) {
 
 int 
 main(int argc, char **argv) {
-  struct ev_loop *loop = ev_default_loop(0);
+  struct ev_loop *loop = ev_default_loop(EVBACKEND_EPOLL | EVFLAG_NOENV);
   int sd;
   struct sockaddr_in addr;
   struct ev_io w_accept;
@@ -98,7 +99,7 @@ main(int argc, char **argv) {
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
  
   // Start listing on the socket
-  if (listen(sd, 100) < 0) {
+  if (listen(sd, 1024) < 0) {
     perror("listen error");
     return -1;
   }
@@ -140,6 +141,8 @@ accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
   }
   serv.conns++;
   serv.tot_conn++;
+  int flags = fcntl(client_sd, F_GETFL, 0);
+  fcntl(client_sd, F_SETFL, flags | O_NONBLOCK);
 
   // Initialize and start watcher to read client requests
   w_client = (struct ev_io*) malloc (sizeof(struct ev_io));
@@ -194,7 +197,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
     if ((fl->request - fl->send) < BUFFER_SIZE) 
       read = fl->request - fl->send;
 
-    rcv = send(w->fd, buffer, read, 0);
+    rcv = send(w->fd, 1460, read, 0);
     if((rcv <= 0) || ((fl->send = fl->send + rcv) >= fl->request)) {
       // Stop and free watchet if client socket is closing
       ev_io_stop(loop,w);
