@@ -54,6 +54,7 @@ struct traffic_model {
   char host[1024];
   char logfile[1024];
   long long int seed;
+  long long int duration;
   uint16_t port;
   uint16_t port_num;
   enum traffic_mode mode;
@@ -68,8 +69,10 @@ struct flow {
   uint32_t id;
   double requests;
   uint16_t curr_request;
+  uint8_t *send_req; 
   double *request_delay;
   double *size;
+  struct timeval *start;
 };
 
 void init_traffic_model( struct traffic_model*, const char *);

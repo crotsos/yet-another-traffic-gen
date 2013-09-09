@@ -28,8 +28,13 @@
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include <arpa/inet.h>
+#include <string.h>
+
+#include <sys/time.h>
+#include <sys/resource.h>
 
 #include <netdb.h>
+#include <fcntl.h>
 
 #include "traff_gen.h"
 #include "debug.h"
@@ -40,6 +45,7 @@
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 static void flow_cb (struct ev_loop *, struct ev_timer *, int); 
 static void request_cb (struct ev_loop *, struct ev_timer *, int); 
+static void end_cb (struct ev_loop *, struct ev_timer *, int); 
 
 gsl_rng * r;
 struct traffic_model *t;
@@ -52,7 +58,6 @@ flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct flow *f)
   int sd;
   struct sockaddr_in addr;
   struct ev_io *w;
-  ssize_t write;
 
   // Create server socket
   if( (sd = socket(PF_INET, SOCK_STREAM, 0)) < 0 ) {
@@ -60,26 +65,24 @@ flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct flow *f)
     return -1;
   }
 
-  
+ 
 //  printf("dst host %s:%d\n", t->host, t->port);
   bzero(&addr, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_port = htons(t->port);
   addr.sin_addr.s_addr = inet_addr(t->host);
 
-  // Bind socket to address
-  if (connect(sd, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
+  int flags = fcntl(sd, F_GETFL, 0);
+  fcntl(sd, F_SETFL, flags | O_NONBLOCK);
+
+   // Bind socket to address
+  if ((connect(sd, (struct sockaddr*) &addr, sizeof(addr)) != 0) && (errno != EINPROGRESS)) {
     perror("bind error");
   }
   
-  write = send(sd, &len, sizeof(len), 0);
-  if (write < sizeof(len)) {
-    perror("send request failed");
-    return -1;
-  }
   // Initialize and start a watcher to accepts client requests
   w = (struct ev_io*) malloc (sizeof(struct ev_io));
-  ev_io_init(w, read_cb, sd, EV_READ);
+  ev_io_init(w, read_cb, sd, EV_READ | EV_WRITE);
   w->data = f;
   ev_io_start(loop, w);
   return 0;
@@ -113,8 +116,13 @@ init_flow(struct flow *f) {
   get_sample(&t->request_num, &f->requests, 1);
 
   // define for reqest inter request delay and size
+  f->send_req = (uint8_t *)malloc(f->requests * sizeof(uint8_t));
+  bzero(f->send_req, f->requests);
   f->size = (double *)malloc(f->requests * sizeof(double));
   f->request_delay = (double *)malloc(f->requests * sizeof(double));
+  f->start = (struct timeval *)malloc(f->requests * sizeof(struct timeval));
+  bzero(f->start, f->requests * sizeof(struct timeval));
+
   get_sample(&t->request_size, f->size, f->requests);
   get_sample(&t->request_delay, f->request_delay, f->requests);
   f->id = (++flow_count);
@@ -123,10 +131,15 @@ init_flow(struct flow *f) {
 int 
 main(int argc, char **argv) {
   const gsl_rng_type * T; 
-  struct ev_loop *loop = ev_default_loop(0);
+//  struct ev_loop *loop = ev_default_loop(EVBACKEND_EPOLL | EVFLAG_NOENV); 
+  struct ev_loop *loop = ev_default_loop(0); 
   int i;
-  struct ev_timer *timer;
+  struct ev_timer *timer, end;
   double delay;
+
+//    struct rlimit limit;
+//    getrlimit(RLIMIT_NOFILE,&limit);
+//    printf("cur: %d, max: %d\n",limit.rlim_cur,limit.rlim_max);
 
   //ifnore sigpipe signal
   signal(SIGPIPE, SIG_IGN);
@@ -162,6 +175,9 @@ main(int argc, char **argv) {
       ev_timer_start(loop, timer);
   }
   
+  ev_timer_init(&end, end_cb, t->duration, 0.0);
+  ev_timer_start(loop, &end);
+  
   // Start infinite loop
   while (1) 
     ev_loop(loop, 0);
@@ -178,9 +194,24 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
   struct flow *f = w->data;
   struct ev_timer *request_timer;
   double delay;
+  uint64_t len = f->size[f->curr_request];
+  ssize_t write;
 
   if(EV_ERROR & revents) {
     perror("got invalid event");
+  }
+
+  if ((!f->send_req[f->curr_request]) && (EV_WRITE & revents)) {
+    write = send(w->fd, &len, sizeof(len), 0);
+    if (write < sizeof(len)) {
+      perror("send request failed");
+      exit(1);
+    }
+    f->send_req[f->curr_request] = 1;
+    ev_io_stop(l,w);
+    ev_io_set(w, w->fd, EV_READ);
+    ev_io_start(l,w);
+
   }
 
   if (EV_READ & revents) {
@@ -192,8 +223,12 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       close(w->fd);
       ev_io_stop(l,w);
       free(w);
-      LOG("-request:%ld.%06ld:%u:%u",  
-          tv.tv_sec, tv.tv_usec, f->id, f->curr_request);
+      LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",  
+          f->start[f->curr_request].tv_sec,
+          f->start[f->curr_request].tv_usec,
+	  tv.tv_sec, tv.tv_usec, 
+          f->id, f->curr_request, f->size[f->curr_request], 
+          f->request_delay[f->curr_request]);
 
       f->curr_request++;
       if(f->curr_request >= f->requests) {
@@ -218,7 +253,8 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
          ev_timer_init(request_timer, request_cb, 
              f->request_delay[f->curr_request], 0.0);
          ev_timer_start(l, request_timer);
-        } else { 
+        } else {
+	  memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval)); 
           LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
               tv.tv_sec, tv.tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
               f->request_delay[f->curr_request]);
@@ -236,16 +272,17 @@ flow_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   struct flow *f;
   double delay;
 
-  gettimeofday(&tv, NULL);
-
   // create a new flow definition
   f = (struct flow *)malloc(sizeof(struct flow));
   init_flow(f);
+  gettimeofday(&f->start[f->curr_request], NULL);
   LOG("+flow:%ld.%06ld:%u:%f",  
       tv.tv_sec, tv.tv_usec, f->id, f->requests);
 
   LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
-      tv.tv_sec, tv.tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
+      f->start[f->curr_request].tv_sec, 
+      f->start[f->curr_request].tv_usec, 
+      f->id, f->curr_request, f->size[f->curr_request], 
       f->request_delay[f->curr_request]);
   flow_request(l, PORT_NO, f->size[f->curr_request], f);
 
@@ -259,13 +296,20 @@ flow_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   return;
 }
 
-static void request_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
-  struct timeval tv;
+static void 
+end_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
+	exit(1);
+}
+
+static void 
+request_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   struct flow *f = timer->data;
 
-  gettimeofday(&tv, NULL);
+  gettimeofday(&f->start[f->curr_request], NULL);
   LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
-      tv.tv_sec, tv.tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
+      f->start[f->curr_request].tv_sec, 
+      f->start[f->curr_request].tv_usec, 
+      f->id, f->curr_request, f->size[f->curr_request], 
       f->request_delay[f->curr_request]);
 
     flow_request(l, PORT_NO, f->size[f->curr_request], f);
