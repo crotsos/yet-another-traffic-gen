@@ -53,6 +53,7 @@ init_traffic_model (struct traffic_model *t, const char *file) {
 
   if(config_lookup_int64(&cfg, "duration", &t->duration) == CONFIG_FALSE)
     t->duration = 60;
+  printf("got a duration of %lld\n", t->duration);
 
   if(config_lookup_string(&cfg, "service.host", &name) == CONFIG_FALSE)
     strncpy(t->host, "127.0.0.1", 1024);

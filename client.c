@@ -52,6 +52,8 @@ struct traffic_model *t;
 const char *kOurProductName = "client";
 
 uint32_t flow_count = 0;
+uint32_t requests_running = 0;
+int running = 1; 
 
 int
 flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct flow *f) {
@@ -85,6 +87,7 @@ flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct flow *f)
   ev_io_init(w, read_cb, sd, EV_READ | EV_WRITE);
   w->data = f;
   ev_io_start(loop, w);
+  requests_running++;
   return 0;
 }
 
@@ -227,12 +230,16 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       close(w->fd);
       ev_io_stop(l,w);
       free(w);
+      requests_running--;
+
       LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",  
           f->start[f->curr_request].tv_sec,
           f->start[f->curr_request].tv_usec,
 	  tv.tv_sec, tv.tv_usec, 
           f->id, f->curr_request, f->size[f->curr_request], 
           f->request_delay[f->curr_request]);
+      
+      if (!running && !requests_running) exit(0); 
 
       f->curr_request++;
       if(f->curr_request >= f->requests) {
@@ -276,6 +283,8 @@ flow_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   struct flow *f;
   double delay;
 
+  if(!running) return;
+
   // create a new flow definition
   f = (struct flow *)malloc(sizeof(struct flow));
   init_flow(f);
@@ -302,7 +311,8 @@ flow_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
 
 static void 
 end_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
-	exit(1);
+  printf("finishing experiment...\nwaiting for %d events\n", requests_running);
+  running = 0;
 }
 
 static void 
