@@ -30,6 +30,7 @@
 
 void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
+static void stats_cb (struct ev_loop *, struct ev_timer *, int); 
 
 char buffer[BUFFER_SIZE];
 
@@ -47,6 +48,7 @@ main() {
   int sd;
   struct sockaddr_in addr;
   struct ev_io w_accept;
+  struct ev_timer *t;
 
   //init struct 
   serv.tot_bytes = 0;
@@ -86,6 +88,11 @@ main() {
   ev_io_init(&w_accept, accept_cb, sd, EV_READ);
   ev_io_start(loop, &w_accept);
 
+  // Initialize and start a timer watcher to 
+  t = (struct ev_timer*) malloc (sizeof(struct ev_timer));
+  ev_timer_init(t, stats_cb, 1.0, 1.0);
+  ev_timer_start(loop, t);
+
   // Start infinite loop
   while (1) 
     ev_loop(loop, 0);
@@ -113,10 +120,8 @@ accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
     perror("accept error");
     return;
   }
-
   serv.conns++;
-  printf("Successfully connected with client.\n");
-  printf("%ld client(s) connected.\n", serv.conns);
+  printf("+ (%u client(s))\n", serv.conns);
 
   // Initialize and start watcher to read client requests
   w_client = (struct ev_io*) malloc (sizeof(struct ev_io));
@@ -131,7 +136,7 @@ accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
 /* Read client message */
 void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
   ssize_t read, rcv;
-  uint32_t req_data;
+  uint64_t req_data;
   struct flow_stats* fl = (struct flow_stats *)w->data;
 
   if(EV_ERROR & revents) {
@@ -151,12 +156,10 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       serv.conns--;
       serv.period_finished++;
       serv.tot_conn++;
-      perror("peer might closing");
-      printf("%ld client(s) connected.\n", serv.conns);
+      printf("- send 0 bytes (%u client(s))\n", serv.conns);
       return;
     }
-    else if (read == 4) {
-      printf("sending %d bytes\n", req_data);
+    else if (read == sizeof(req_data)) {
       fl->request = req_data;
       ev_io_stop(loop,w);
       ev_io_set(w, w->fd, EV_WRITE);
@@ -180,9 +183,9 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       serv.conns--;
       serv.period_finished++;
       serv.tot_conn++;
-      perror("peer might closing");
-      printf("%ld client(s) connected.\n", serv.conns);
-      return;
+      gettimeofday(&fl->end, NULL); 
+      printf("- send %lu bytes %f secs (%u client(s))\n", fl->send, 
+          time_diff(&fl->st, &fl->end), serv.conns);
     } else {
       fl->send += rcv;
       serv.tot_bytes += rcv;
@@ -191,8 +194,8 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
         close(w->fd);
         ev_io_stop(loop,w);
         gettimeofday(&fl->end, NULL); 
-        printf("flow completed in %f secs\n",
-            time_diff(&fl->st, &fl->end));
+        printf("- send %lu bytes in %f secs (%u client(s))\n", fl->send, 
+            time_diff(&fl->st, &fl->end), serv.conns);
         free(w);
         free(fl);
          serv.conns--;
@@ -202,4 +205,15 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       return;
     }
   }
+}
+
+static void
+stats_cb (struct ev_loop *loop, struct ev_timer *t, int revents) {
+  struct timeval st;
+  gettimeofday(&st, NULL);
+ printf("%u.%06u: rate %lu bytes/sec, completed %lu, remaining %u\n", 
+     st.tv_sec, st.tv_usec, serv.period_bytes, serv.period_finished, 
+     serv.conns);
+ serv.period_bytes = 0;
+ serv.period_finished = 0;
 }

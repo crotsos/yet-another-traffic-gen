@@ -21,14 +21,14 @@
 struct server_stats {
   uint64_t tot_bytes;
   uint32_t tot_conn;
+  uint32_t conns;
   uint64_t period_bytes;
-  uint64_t conns;
   uint64_t period_finished;
 };
 
 struct flow_stats {
-  uint32_t request;
-  uint32_t send;
+  uint64_t request;
+  uint64_t send;
   struct timeval st, end;
 };
 
