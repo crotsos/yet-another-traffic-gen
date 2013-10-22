@@ -159,7 +159,6 @@
 #endif
 
 /* Provide a definition for this constant in every executable. */
-extern const char *kOurProductName;
 
 #ifdef __cplusplus
     #include <cstdio>

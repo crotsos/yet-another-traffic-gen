@@ -23,7 +23,10 @@
 #include <strings.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
 
+#include "debug.h"
 #include "traff_gen.h"
 
 #define BUFFER_SIZE 6400
@@ -33,22 +36,24 @@ void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 static void stats_cb (struct ev_loop *, struct ev_timer *, int); 
 
 char buffer[BUFFER_SIZE];
+const char *kOurProductName = "server";
 
 struct server_stats serv;
+struct traffic_model *t;
 
-float 
+double 
 time_diff (struct timeval *start, struct timeval *end) {
-  return ( (float)end->tv_sec - (float)start->tv_sec + 
-      ((float)(end->tv_usec - start->tv_usec)/(float)1000000)); }
+  return ( (double)end->tv_sec - (double)start->tv_sec + 
+      (((double)end->tv_usec - (double)start->tv_usec)/(double)1000000)); }
 
 
 int 
-main() {
+main(int argc, char **argv) {
   struct ev_loop *loop = ev_default_loop(0);
   int sd;
   struct sockaddr_in addr;
   struct ev_io w_accept;
-  struct ev_timer *t;
+  struct ev_timer *timer;
 
   //init struct 
   serv.tot_bytes = 0;
@@ -57,8 +62,22 @@ main() {
   serv.conns = 0;
   serv.period_finished = 0;
 
+  // disable annoying signal 
   signal(SIGPIPE, SIG_IGN);
-  // Create server socket
+  
+  t = (struct traffic_model *)malloc(sizeof(struct traffic_model));
+  bzero(t, sizeof(struct traffic_model));
+ 
+   // load the configuration
+  if (argc > 1)
+    init_traffic_model(t, argv[1]);
+  else
+    init_traffic_model(t, "server.cfg");
+
+  // init my logging 
+  cl_debug_init(t->logfile);
+
+ // Create server socket
   if( (sd = socket(PF_INET, SOCK_STREAM, 0)) < 0 ) {
     perror("socket error");
     return -1;
@@ -66,8 +85,8 @@ main() {
 
   bzero(&addr, sizeof(addr));
   addr.sin_family = AF_INET;
-  addr.sin_port = htons(PORT_NO);
-  addr.sin_addr.s_addr = INADDR_ANY;
+  addr.sin_port = htons(t->port);
+  addr.sin_addr.s_addr = inet_addr(t->host);
 
   // Bind socket to address
   if (bind(sd, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
@@ -79,7 +98,7 @@ main() {
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
  
   // Start listing on the socket
-  if (listen(sd, 2) < 0) {
+  if (listen(sd, 100) < 0) {
     perror("listen error");
     return -1;
   }
@@ -89,14 +108,13 @@ main() {
   ev_io_start(loop, &w_accept);
 
   // Initialize and start a timer watcher to 
-  t = (struct ev_timer*) malloc (sizeof(struct ev_timer));
-  ev_timer_init(t, stats_cb, 1.0, 1.0);
-  ev_timer_start(loop, t);
+  timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
+  ev_timer_init(timer, stats_cb, 1.0, 1.0);
+  ev_timer_start(loop, timer);
 
   // Start infinite loop
   while (1) 
     ev_loop(loop, 0);
-  printf("evio loop returned\n");
   return 0;
 }
 
@@ -121,7 +139,7 @@ accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
     return;
   }
   serv.conns++;
-  printf("+ (%u client(s))\n", serv.conns);
+  serv.tot_conn++;
 
   // Initialize and start watcher to read client requests
   w_client = (struct ev_io*) malloc (sizeof(struct ev_io));
@@ -129,6 +147,7 @@ accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
   fl = malloc(sizeof(struct flow_stats));
   bzero(fl, sizeof(struct flow_stats));
   gettimeofday(&fl->st, NULL);
+  fl->id = serv.tot_conn;
   w_client->data = (void *)fl;
   ev_io_start(loop, w_client);
 }
@@ -155,12 +174,13 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       free(fl);
       serv.conns--;
       serv.period_finished++;
-      serv.tot_conn++;
-      printf("- send 0 bytes (%u client(s))\n", serv.conns);
-      return;
+      LOG("- %ld.%06ld:%d:0.000000:0", fl->end.tv_sec, fl->end.tv_usec, 
+          fl->id);
     }
     else if (read == sizeof(req_data)) {
       fl->request = req_data;
+      LOG("+ %ld.%06ld:%u:%lu", fl->st.tv_sec, fl->st.tv_usec, 
+          fl->id, fl->request);
       ev_io_stop(loop,w);
       ev_io_set(w, w->fd, EV_WRITE);
       ev_io_start(loop,w);
@@ -175,34 +195,21 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       read = fl->request - fl->send;
 
     rcv = send(w->fd, buffer, read, 0);
-    if(rcv <= 0) {
+    if((rcv <= 0) || ((fl->send = fl->send + rcv) >= fl->request)) {
       // Stop and free watchet if client socket is closing
       ev_io_stop(loop,w);
       free(w);
       close(w->fd);
       serv.conns--;
       serv.period_finished++;
-      serv.tot_conn++;
-      gettimeofday(&fl->end, NULL); 
-      printf("- send %lu bytes %f secs (%u client(s))\n", fl->send, 
-          time_diff(&fl->st, &fl->end), serv.conns);
+      gettimeofday(&fl->end, NULL);
+      LOG("- %ld.%06ld:%d:%.06f:%lu",  
+          fl->end.tv_sec, fl->end.tv_usec, fl->id, 
+          time_diff(&fl->st, &fl->end), fl->send);
+      free(fl);
     } else {
-      fl->send += rcv;
       serv.tot_bytes += rcv;
       serv.period_bytes += rcv;
-      if (fl->send >= fl->request) {
-        close(w->fd);
-        ev_io_stop(loop,w);
-        gettimeofday(&fl->end, NULL); 
-        printf("- send %lu bytes in %f secs (%u client(s))\n", fl->send, 
-            time_diff(&fl->st, &fl->end), serv.conns);
-        free(w);
-        free(fl);
-         serv.conns--;
-        serv.period_finished++;
-        serv.tot_conn++;
-      }
-      return;
     }
   }
 }
@@ -210,8 +217,9 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
 static void
 stats_cb (struct ev_loop *loop, struct ev_timer *t, int revents) {
   struct timeval st;
+//  debug_enter("starts_cb");
   gettimeofday(&st, NULL);
- printf("%u.%06u: rate %lu bytes/sec, completed %lu, remaining %u\n", 
+ LOG("stat:%ld.%06ld:%lu:%lu:%u", 
      st.tv_sec, st.tv_usec, serv.period_bytes, serv.period_finished, 
      serv.conns);
  serv.period_bytes = 0;

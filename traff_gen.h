@@ -29,8 +29,47 @@ struct server_stats {
 struct flow_stats {
   uint64_t request;
   uint64_t send;
+  uint32_t id;
   struct timeval st, end;
 };
 
+enum model_type {
+  CONSTANT=1,
+  EXPONENTIAL,
+  PARETO,
+};
 
+struct model {
+  int type; 
+  double alpha;
+  double mean;
+};
 
+enum traffic_mode {
+  PIPELINE=1,
+  INDEPENDENT,
+};
+
+struct traffic_model {
+  char host[1024];
+  char logfile[1024];
+  long long int seed;
+  uint16_t port;
+  uint16_t port_num;
+  enum traffic_mode mode;
+  uint16_t flows;
+  struct model flow_arrival;
+  struct model request_num;
+  struct model request_delay;
+  struct model request_size;
+};
+
+struct flow {
+  uint32_t id;
+  double requests;
+  uint16_t curr_request;
+  double *request_delay;
+  double *size;
+};
+
+void init_traffic_model( struct traffic_model*, const char *);
