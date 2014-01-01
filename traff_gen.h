@@ -59,6 +59,7 @@ struct udp_flow_stats {
 enum traffic_mode {
   PIPELINE=1,
   INDEPENDENT,
+  PACKET,
 };
 
 struct traffic_model {
@@ -87,3 +88,6 @@ struct flow {
 };
 
 void init_traffic_model( struct traffic_model*, const char *);
+
+void init_rand(struct traffic_model *);
+void get_sample(struct model *, double *, int); 

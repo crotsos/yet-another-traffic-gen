@@ -25,8 +25,6 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <gsl/gsl_rng.h>
-#include <gsl/gsl_randist.h>
 #include <arpa/inet.h>
 #include <string.h>
 
@@ -35,6 +33,7 @@
 
 #include <netdb.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #include "traff_gen.h"
 #include "debug.h"
@@ -47,7 +46,6 @@ static void flow_cb (struct ev_loop *, struct ev_timer *, int);
 static void request_cb (struct ev_loop *, struct ev_timer *, int); 
 static void end_cb (struct ev_loop *, struct ev_timer *, int); 
 
-gsl_rng * r;
 struct traffic_model *t;
 const char *kOurProductName = "client";
 
@@ -91,29 +89,6 @@ flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct flow *f)
   return 0;
 }
 
-static void
-get_sample(struct model *m, double *ret, int len) {
-  int ix;
-  for (ix=0; ix < len; ix ++) 
-    switch(m->type) {
-      case CONSTANT:
-        ret[ix] = m->mean;
-        break;
-      case EXPONENTIAL:
-
-        ret[ix] = gsl_ran_exponential((const gsl_rng *) r, m->mean);
-        //printf("exponential sample %f (mean %f)\n", ret[ix], m->mean);
-        break;
-      case PARETO:
-        ret[ix] = gsl_ran_pareto((const gsl_rng*)r, m->alpha, m->mean);
-        //printf("pareto sample %f (alpha %f mean %f)\n", ret[ix], m->alpha, m->mean);
-        break;
-      default:
-        printf("Invalid traffic model\n");
-        exit(1);
-    }
-}
-
 void 
 init_flow(struct flow *f) {
 
@@ -136,7 +111,6 @@ init_flow(struct flow *f) {
 
 int 
 main(int argc, char **argv) {
-  const gsl_rng_type * T; 
 //  struct ev_loop *loop = ev_default_loop(EVBACKEND_EPOLL | EVFLAG_NOENV); 
   struct ev_loop *loop = ev_default_loop(0); 
   int i;
@@ -162,12 +136,8 @@ main(int argc, char **argv) {
   unlink(t->logfile);
   cl_debug_init(t->logfile);
 
-  // initiliaze the random number generator
-  gsl_rng_env_setup();
-  T = gsl_rng_default;
-  r = gsl_rng_alloc (T);
-  gsl_rng_set(r, (unsigned long int)t->seed);
-
+  // init random generator 
+  init_rand(t); 
 
   // start a request
   if (t->mode == INDEPENDENT) 
@@ -232,7 +202,7 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       free(w);
       requests_running--;
 
-      LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",  
+      LOG("-request:%ld.%06d:%ld.%06d:%u:%u:%f:%f",  
           f->start[f->curr_request].tv_sec,
           f->start[f->curr_request].tv_usec,
 	  tv.tv_sec, tv.tv_usec, 
@@ -244,7 +214,7 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       f->curr_request++;
       if(f->curr_request >= f->requests) {
         // schedule next request
-        LOG("-flow:%ld.%06ld:%u",  
+        LOG("-flow:%ld.%06d:%u",  
             tv.tv_sec, tv.tv_usec, f->id);
 
         free(f->size);
@@ -266,7 +236,7 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
          ev_timer_start(l, request_timer);
         } else {
 	  memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval)); 
-          LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
+          LOG("+request:%ld.%06d:%u:%u:%f:%f",  
               tv.tv_sec, tv.tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
               f->request_delay[f->curr_request]);
 
@@ -289,10 +259,10 @@ flow_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   f = (struct flow *)malloc(sizeof(struct flow));
   init_flow(f);
   gettimeofday(&f->start[f->curr_request], NULL);
-  LOG("+flow:%ld.%06ld:%u:%f",  
+  LOG("+flow:%ld.%06d:%u:%f",  
       tv.tv_sec, tv.tv_usec, f->id, f->requests);
 
-  LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
+  LOG("+request:%ld.%06d:%u:%u:%f:%f",  
       f->start[f->curr_request].tv_sec, 
       f->start[f->curr_request].tv_usec, 
       f->id, f->curr_request, f->size[f->curr_request], 
@@ -320,7 +290,7 @@ request_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   struct flow *f = timer->data;
 
   gettimeofday(&f->start[f->curr_request], NULL);
-  LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
+  LOG("+request:%ld.%06d:%u:%u:%f:%f",  
       f->start[f->curr_request].tv_sec, 
       f->start[f->curr_request].tv_usec, 
       f->id, f->curr_request, f->size[f->curr_request], 

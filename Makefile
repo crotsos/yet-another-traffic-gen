@@ -7,8 +7,8 @@ all: server client
 clean:
 	rm -f *.o server client
 
-server: server.c debug.c config.c debug.h traff_gen.h
-	$(CC) $(CC_OPTS) -o $@ server.c debug.c config.c $(CC_LIBS)
+server: server.c debug.c config.c debug.h traff_gen.h tpl.c tpl.h util.c 
+	$(CC) $(CC_OPTS) -g -o $@ util.c server.c debug.c config.c tpl.c $(CC_LIBS)
 
-client: client.c debug.c config.c debug.h traff_gen.h
-	$(CC) $(CC_OPTS) -o $@ client.c debug.c config.c $(CC_LIBS) 
+client: client.c debug.c config.c debug.h traff_gen.h tpl.c tpl.h util.c
+	$(CC) $(CC_OPTS) -g -o $@ util.c client.c debug.c config.c tpl.c $(CC_LIBS) 
