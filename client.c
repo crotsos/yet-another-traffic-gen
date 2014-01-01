@@ -3,7 +3,7 @@
  *
  *       Filename:  server.c
  *
- *    Description:  isimple libev server. receives a request of bytes and
+ *    Description:  a simple libev server. receives a request of bytes and
  *    transits it over the socket. 
  *
  *        Version:  1.0

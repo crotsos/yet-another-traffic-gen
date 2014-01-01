@@ -32,7 +32,8 @@
 
 #define BUFFER_SIZE 6400
 
-void accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
+void tcp_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
+void udp_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 static void stats_cb (struct ev_loop *, struct ev_timer *, int); 
 
@@ -53,15 +54,12 @@ main(int argc, char **argv) {
   struct ev_loop *loop = ev_default_loop(EVBACKEND_EPOLL | EVFLAG_NOENV);
   int sd;
   struct sockaddr_in addr;
-  struct ev_io w_accept;
+  struct ev_io w_tcp_accept, w_udp_accept;
   struct ev_timer *timer;
+  int optval = 1;
 
   //init struct 
-  serv.tot_bytes = 0;
-  serv.tot_conn = 0;
-  serv.period_bytes = 0;
-  serv.conns = 0;
-  serv.period_finished = 0;
+  bzero(&serv, sizeof(struct server_stats));
 
   // disable annoying signal 
   signal(SIGPIPE, SIG_IGN);
@@ -95,18 +93,45 @@ main(int argc, char **argv) {
   }
   
   // set SO_REUSEADDR on a socket to true (1):
-  int optval = 1;
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
  
-  // Start listing on the socket
+  // Start listening on the socket
   if (listen(sd, 1024) < 0) {
     perror("listen error");
     return -1;
   }
-
+ 
   // Initialize and start a watcher to accepts client requests
-  ev_io_init(&w_accept, accept_cb, sd, EV_READ);
-  ev_io_start(loop, &w_accept);
+  ev_io_init(&w_tcp_accept, tcp_accept_cb, sd, EV_READ);
+  ev_io_start(loop, &w_tcp_accept);
+
+  // Create udp server socket
+  if( (sd = socket(PF_INET, SOCK_DGRAM, 0)) < 0 ) {
+    perror("socket error");
+    return -1;
+  }
+
+  bzero(&addr, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(t->port);
+  addr.sin_addr.s_addr = inet_addr(t->host);
+
+  // Bind socket to address
+  if (bind(sd, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
+    perror("bind error");
+  }
+  
+  // set SO_REUSEADDR on a socket to true (1):
+  setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
+ 
+  // Start listening on the socket
+  if (listen(sd, 1024) < 0) {
+    perror("listen error");
+    return -1;
+  }
+  // Initialize and start a watcher to accepts client requests
+  ev_io_init(&w_udp_accept, udp_accept_cb, sd, EV_READ);
+  ev_io_start(loop, &w_udp_accept);
 
   // Initialize and start a timer watcher to 
   timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
@@ -121,11 +146,11 @@ main(int argc, char **argv) {
 
 /* Accept client requests */
 void 
-accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
+tcp_accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
   struct sockaddr_in client_addr;
   socklen_t client_len = sizeof(client_addr);
   int client_sd;
-  struct flow_stats* fl;
+  struct tcp_flow_stats* fl;
   struct ev_io *w_client;
 
   if(EV_ERROR & revents) {
@@ -140,26 +165,58 @@ accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
     return;
   }
   serv.conns++;
-  serv.tot_conn++;
+  serv.tcp_tot_conn++;
   int flags = fcntl(client_sd, F_GETFL, 0);
   fcntl(client_sd, F_SETFL, flags | O_NONBLOCK);
 
   // Initialize and start watcher to read client requests
   w_client = (struct ev_io*) malloc (sizeof(struct ev_io));
   ev_io_init(w_client, read_cb, client_sd, EV_READ);
-  fl = malloc(sizeof(struct flow_stats));
-  bzero(fl, sizeof(struct flow_stats));
+  fl = malloc(sizeof(struct tcp_flow_stats));
+  bzero(fl, sizeof(struct tcp_flow_stats));
   gettimeofday(&fl->st, NULL);
-  fl->id = serv.tot_conn;
+  fl->id = serv.tcp_tot_conn;
   w_client->data = (void *)fl;
   ev_io_start(loop, w_client);
 }
+
+/* Accept client requests */
+void 
+udp_accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
+  struct sockaddr_in client_addr;
+  socklen_t client_len = sizeof(client_addr);
+  int fromlen;
+  ssize_t len;
+  struct udp_flow_stats* fl;
+  struct ev_timer *request_timer;
+
+  if(EV_ERROR & revents) {
+    perror("got invalid event");
+    return;
+  }
+
+  // Accept client request
+  len = recvfrom(w->fd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &fromlen);
+  if (len < 0) {
+    perror("accept error");
+    return;
+  }
+
+  // Initialize and start watcher to read client requests
+  fl = malloc(sizeof(struct udp_flow_stats));
+  bzero(fl, sizeof(struct udp_flow_stats));
+  gettimeofday(&fl->st, NULL);
+  fl->id = serv.tcp_tot_conn;
+//  w_client->data = (void *)fl;
+//  ev_io_start(loop, w_client);
+}
+
 
 /* Read client message */
 void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
   ssize_t read, rcv;
   uint64_t req_data;
-  struct flow_stats* fl = (struct flow_stats *)w->data;
+  struct tcp_flow_stats* fl = (struct tcp_flow_stats *)w->data;
 
   if(EV_ERROR & revents) {
     perror("got invalid event");
@@ -169,7 +226,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
   if (EV_READ & revents) {
     // Receive message from client socket
     read = recv(w->fd, &req_data, sizeof(req_data), 0);
-    if(read <= 0) {
+    if(read < sizeof(req_data)) {
       // Stop and free watchet if client socket is closing
       close(w->fd);
       ev_io_stop(loop,w);
@@ -212,8 +269,8 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
           time_diff(&fl->st, &fl->end), fl->send);
       free(fl);
     } else {
-      serv.tot_bytes += rcv;
-      serv.period_bytes += rcv;
+      serv.tcp_tot_bytes += rcv;
+      serv.tcp_period_bytes += rcv;
     }
   }
 }
@@ -224,8 +281,8 @@ stats_cb (struct ev_loop *loop, struct ev_timer *t, int revents) {
 //  debug_enter("starts_cb");
   gettimeofday(&st, NULL);
  LOG("stat:%ld.%06ld:%llu:%llu:%u", 
-     st.tv_sec, st.tv_usec, serv.period_bytes, serv.period_finished, 
+     st.tv_sec, st.tv_usec, serv.tcp_period_bytes, serv.period_finished, 
      serv.conns);
- serv.period_bytes = 0;
+ serv.tcp_period_bytes = 0;
  serv.period_finished = 0;
 }

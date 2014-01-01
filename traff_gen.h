@@ -19,20 +19,15 @@
 #define PORT_NO 3033
 
 struct server_stats {
-  uint64_t tot_bytes;
-  uint32_t tot_conn;
+  uint64_t tcp_tot_bytes;
+  uint32_t tcp_tot_conn;
+  uint32_t udp_tot_conn;
   uint32_t conns;
-  uint64_t period_bytes;
+  uint64_t tcp_period_bytes;
   uint64_t period_finished;
 };
-
-struct flow_stats {
-  uint64_t request;
-  uint64_t send;
-  uint32_t id;
-  struct timeval st, end;
-};
-
+/* we need a simple UDP &TCP request model 
+ * */
 enum model_type {
   CONSTANT=1,
   EXPONENTIAL,
@@ -43,6 +38,22 @@ struct model {
   int type; 
   double alpha;
   double mean;
+};
+
+struct tcp_flow_stats {
+  uint64_t request;
+  uint64_t send;
+  uint32_t id;
+  struct timeval st, end;
+};
+
+struct udp_flow_stats {
+  uint32_t pkt_count;
+  uint16_t pkt_size; 
+  struct model delay;
+  uint64_t send;
+  uint32_t id;
+  struct timeval st, end;
 };
 
 enum traffic_mode {
