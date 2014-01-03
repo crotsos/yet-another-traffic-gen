@@ -18,7 +18,6 @@
  */
 #include <stdlib.h>
 #include <stdio.h>
-#include <netinet/in.h>
 #include <ev.h>
 #include <strings.h>
 #include <unistd.h>
@@ -26,6 +25,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include "tpl.h"
 
 #include "debug.h"
 #include "traff_gen.h"
@@ -35,6 +35,7 @@
 void tcp_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 void udp_accept_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 void read_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
+static void udp_write_cb (struct ev_loop *, struct ev_timer *, int); 
 static void stats_cb (struct ev_loop *, struct ev_timer *, int); 
 
 char buffer[BUFFER_SIZE];
@@ -43,20 +44,20 @@ const char *kOurProductName = "server";
 struct server_stats serv;
 struct traffic_model *t;
 
-double 
-time_diff (struct timeval *start, struct timeval *end) {
-  return ( (double)end->tv_sec - (double)start->tv_sec + 
-      (((double)end->tv_usec - (double)start->tv_usec)/(double)1000000)); }
-
 
 int 
 main(int argc, char **argv) {
-  struct ev_loop *loop = ev_default_loop(EVBACKEND_EPOLL | EVFLAG_NOENV);
+  struct ev_loop *loop = ev_default_loop( EVBACKEND_KQUEUE | EVFLAG_NOENV);
   int sd;
   struct sockaddr_in addr;
   struct ev_io w_tcp_accept, w_udp_accept;
   struct ev_timer *timer;
   int optval = 1;
+
+  if (loop == NULL) {
+    perror("ev_default_loop");
+    exit(1);
+  }
 
   //init struct 
   bzero(&serv, sizeof(struct server_stats));
@@ -94,7 +95,7 @@ main(int argc, char **argv) {
   
   // set SO_REUSEADDR on a socket to true (1):
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
- 
+
   // Start listening on the socket
   if (listen(sd, 1024) < 0) {
     perror("listen error");
@@ -114,7 +115,7 @@ main(int argc, char **argv) {
   bzero(&addr, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_port = htons(t->port);
-  addr.sin_addr.s_addr = inet_addr(t->host);
+  addr.sin_addr.s_addr = INADDR_ANY;
 
   // Bind socket to address
   if (bind(sd, (struct sockaddr*) &addr, sizeof(addr)) != 0) {
@@ -124,11 +125,6 @@ main(int argc, char **argv) {
   // set SO_REUSEADDR on a socket to true (1):
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
  
-  // Start listening on the socket
-  if (listen(sd, 1024) < 0) {
-    perror("listen error");
-    return -1;
-  }
   // Initialize and start a watcher to accepts client requests
   ev_io_init(&w_udp_accept, udp_accept_cb, sd, EV_READ);
   ev_io_start(loop, &w_udp_accept);
@@ -180,15 +176,17 @@ tcp_accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
   ev_io_start(loop, w_client);
 }
 
+int udp_flow_count = 0;
 /* Accept client requests */
 void 
 udp_accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
   struct sockaddr_in client_addr;
-  socklen_t client_len = sizeof(client_addr);
-  int fromlen;
+  socklen_t fromlen = sizeof(struct sockaddr_in);
   ssize_t len;
-  struct udp_flow_stats* fl;
-  struct ev_timer *request_timer;
+  struct ev_timer *timer;
+  tpl_node *tn;
+  struct udp_request req;
+  struct udp_flow *f;
 
   if(EV_ERROR & revents) {
     perror("got invalid event");
@@ -202,18 +200,33 @@ udp_accept_cb(struct ev_loop *loop, struct ev_io *w, int revents) {
     return;
   }
 
-  // Initialize and start watcher to read client requests
-  fl = malloc(sizeof(struct udp_flow_stats));
-  bzero(fl, sizeof(struct udp_flow_stats));
-  gettimeofday(&fl->st, NULL);
-  fl->id = serv.tcp_tot_conn;
+  tn = tpl_map("S($(uff)$(uff)$(uff))", &req);
+  if (tpl_load(tn, TPL_MEM, buffer, len) != 0 ) {
+    printf("failed to parse tpl\n");
+    return;
+  }
+  tpl_unpack(tn, 0);
+  tpl_free(tn);
+
+  printf("flow arrival %s\n", print_model(&req.request_delay));
+  f = (struct udp_flow *)malloc(sizeof(struct udp_flow));
+  udp_init_flow(&req, ++udp_flow_count, w->fd, client_addr, f);
+
+  // Initialize and start a timer watcher to 
+  timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
+  timer->data = f;
+  ev_timer_init(timer, udp_write_cb, f->request_delay[f->curr_request], 0.0);
+  ev_timer_start(loop, timer);
+
+
 //  w_client->data = (void *)fl;
 //  ev_io_start(loop, w_client);
 }
 
 
 /* Read client message */
-void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
+void 
+read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
   ssize_t read, rcv;
   uint64_t req_data;
   struct tcp_flow_stats* fl = (struct tcp_flow_stats *)w->data;
@@ -234,12 +247,12 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       free(fl);
       serv.conns--;
       serv.period_finished++;
-      LOG("- %ld.%06ld:%d:0.000000:0", fl->end.tv_sec, fl->end.tv_usec, 
+      LOG("- %ld.%06d:%d:0.000000:0", fl->end.tv_sec, fl->end.tv_usec, 
           fl->id);
     }
     else if (read == sizeof(req_data)) {
       fl->request = req_data;
-      LOG("+ %ld.%06ld:%u:%llu", fl->st.tv_sec, fl->st.tv_usec, 
+      LOG("+ %ld.%06d:%u:%llu", fl->st.tv_sec, fl->st.tv_usec, 
           fl->id, fl->request);
       ev_io_stop(loop,w);
       ev_io_set(w, w->fd, EV_WRITE);
@@ -263,7 +276,7 @@ void read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       serv.conns--;
       serv.period_finished++;
       gettimeofday(&fl->end, NULL);
-      LOG("- %ld.%.06ld:%ld.%.06ld:%d:%.06f:%llu",   
+      LOG("- %ld.%.06d:%ld.%.06d:%d:%.06f:%llu",   
           fl->st.tv_sec, fl->st.tv_usec,  
           fl->end.tv_sec, fl->end.tv_usec, fl->id, 
           time_diff(&fl->st, &fl->end), fl->send);
@@ -280,9 +293,40 @@ stats_cb (struct ev_loop *loop, struct ev_timer *t, int revents) {
   struct timeval st;
 //  debug_enter("starts_cb");
   gettimeofday(&st, NULL);
- LOG("stat:%ld.%06ld:%llu:%llu:%u", 
+ LOG("stat:%ld.%06d:%llu:%llu:%u", 
      st.tv_sec, st.tv_usec, serv.tcp_period_bytes, serv.period_finished, 
      serv.conns);
  serv.tcp_period_bytes = 0;
  serv.period_finished = 0;
+}
+
+static void 
+udp_write_cb (struct ev_loop *loop, struct ev_timer *e, int t) {
+  struct udp_flow *f = e->data;
+  struct pkt_header *hdr = (struct pkt_header *) buffer;
+
+  hdr->flow_id = f->id; 
+  hdr->pkt_id = f->curr_request;
+  gettimeofday(&hdr->send, NULL);
+
+  printf("send to %s:%d\n",inet_ntoa(f->addr.sin_addr), ntohs(f->addr.sin_port) );
+
+  int len = sendto(f->fd, buffer, f->size[f->curr_request], 0, 
+      (struct sockaddr *)&f->addr, sizeof(struct sockaddr_in));
+
+  if (len < 0) {
+    perror("sendto");
+  }
+  printf("sending %d bytes\n", len);
+
+  f->curr_request++;
+  if (f->curr_request < f->requests) {
+    e->repeat = f->request_delay[f->curr_request];
+  } else {
+    printf("finished udp\n");
+    e->repeat = 0;
+    free(e->data);
+  }
+  ev_timer_again(loop, e);
+  
 }
