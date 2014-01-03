@@ -16,6 +16,9 @@
  * =====================================================================================
  */
 
+#include <netinet/in.h>
+#include <sys/socket.h>
+
 #define PORT_NO 3033
 
 struct server_stats {
@@ -28,6 +31,7 @@ struct server_stats {
 };
 /* we need a simple UDP &TCP request model 
  * */
+// TODO add on-off model and normal
 enum model_type {
   CONSTANT=1,
   EXPONENTIAL,
@@ -35,7 +39,7 @@ enum model_type {
 };
 
 struct model {
-  int type; 
+  uint16_t type; 
   double alpha;
   double mean;
 };
@@ -68,16 +72,26 @@ struct traffic_model {
   long long int seed;
   long long int duration;
   uint16_t port;
-  uint16_t port_num;
   enum traffic_mode mode;
-  uint16_t flows;
+  uint16_t flows; 
+  uint32_t flow_count;
   struct model flow_arrival;
   struct model request_num;
   struct model request_delay;
   struct model request_size;
 };
 
-struct flow {
+struct tcp_request {
+  uint64_t size;
+};
+
+struct udp_request {
+  struct model request_num;
+  struct model request_delay;
+  struct model request_size;
+};
+
+struct tcp_flow {
   uint32_t id;
   double requests;
   uint16_t curr_request;
@@ -87,7 +101,30 @@ struct flow {
   struct timeval *start;
 };
 
+struct udp_flow {
+  int fd;
+  uint32_t id;
+  struct sockaddr_in addr;
+  double requests;
+  uint16_t curr_request;
+  uint8_t *send_req; 
+  double *request_delay;
+  double *size;
+  struct timeval *start;
+};
+
+struct pkt_header {
+  uint32_t flow_id;
+  uint32_t pkt_id;
+  struct timeval send;
+};
+
 void init_traffic_model( struct traffic_model*, const char *);
+void tcp_init_flow(struct traffic_model *, struct tcp_flow *);
+void udp_init_flow(struct udp_request *, int, int, struct sockaddr_in, struct udp_flow *);
 
 void init_rand(struct traffic_model *);
-void get_sample(struct model *, double *, int); 
+void get_sample(struct model *, double *, int);
+char *print_model(struct model *);
+double time_diff (struct timeval *, struct timeval *);
+
