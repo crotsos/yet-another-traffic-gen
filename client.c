@@ -92,6 +92,45 @@ tcp_flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct tcp_
   return 0;
 }
 
+void
+init_tcp_request(struct ev_loop *l, struct tcp_flow *f, struct timeval *tv) {
+  struct ev_timer *request_timer;
+  double delay;
+  f->curr_request++;
+  if(f->curr_request >= f->requests) {
+    // schedule next request
+    LOG("-flow:%ld.%06d:%u",  
+        tv->tv_sec, tv->tv_usec, f->id);
+
+    //free(f->size);
+    //free(f->request_delay);
+    //free(f);
+    if (t->mode == PIPELINE) {
+      request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
+      get_sample(&t->flow_arrival, &delay, 1);
+      ev_timer_init(request_timer, tcp_flow_cb, delay, 0.0);
+      ev_timer_start(l, request_timer);
+    }
+  } else {
+    // schedule next request since we still have requests 
+    if (f->request_delay[f->curr_request] > 0) {
+      request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
+      request_timer->data = f;
+      ev_timer_init(request_timer, request_cb, 
+          f->request_delay[f->curr_request], 0.0);
+      ev_timer_start(l, request_timer);
+    } else {
+      memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval)); 
+      LOG("+request:%ld.%06d:%u:%u:%f:%f",  
+          tv->tv_sec, tv->tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
+          f->request_delay[f->curr_request]);
+
+      tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f);
+    }
+  }
+}
+
+
 int
 udp_flow_request (struct ev_loop *loop, uint16_t port) {
   int sd, optval=1;
@@ -252,26 +291,40 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
   struct timeval tv;
   char buffer[WINDOW_SIZE];
   struct tcp_flow *f = w->data;
-  struct ev_timer *request_timer;
-  double delay;
   uint64_t len = f->size[f->curr_request];
   ssize_t write;
+  regex_t r;
+  regmatch_t m[2];
 
   if(EV_ERROR & revents) {
     perror("got invalid event");
   }
 
   if ((!f->send_req[f->curr_request]) && (EV_WRITE & revents)) {
-    write = send(w->fd, &len, sizeof(len), 0);
-    if (write < sizeof(len)) {
-      perror("send request failed");
-      exit(1);
+    if (f->pages == NULL) {
+      write = send(w->fd, &len, sizeof(len), 0);
+      if (write < sizeof(len)) {
+        perror("send request failed");
+        exit(1);
+      }
+    } else {
+
+      //constrcut http request
+      if (t->domain) {
+        len = sprintf(buffer, 
+            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nHost: %s\r\nAccept: */*\r\n\r\n", 
+            t->urls[f->pages[f->curr_request]], t->domain);
+      } else {
+        len = printf(buffer, 
+            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nAccept: */*\r\n\r\n", 
+            t->urls[f->pages[f->curr_request]]);
+      }
+      write = send(w->fd, buffer, len, 0);
     }
     f->send_req[f->curr_request] = 1;
     ev_io_stop(l,w);
     ev_io_set(w, w->fd, EV_READ);
     ev_io_start(l,w);
-
   }
 
   if (EV_READ & revents) {
@@ -293,38 +346,55 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
           f->request_delay[f->curr_request]);
       
       if (!running && !requests_running) exit(0); 
+      init_tcp_request(l, f, &tv);
 
-      f->curr_request++;
-      if(f->curr_request >= f->requests) {
-        // schedule next request
-        LOG("-flow:%ld.%06d:%u",  
-            tv.tv_sec, tv.tv_usec, f->id);
-
-        free(f->size);
-        free(f->request_delay);
-        free(f);
-        if (t->mode == PIPELINE) {
-          request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
-          get_sample(&t->flow_arrival, &delay, 1);
-          ev_timer_init(request_timer, tcp_flow_cb, delay, 0.0);
-          ev_timer_start(l, request_timer);
-        }
-      } else {
-        // schedule next request since we still have requests 
-       if (f->request_delay[f->curr_request] > 0) {
-         request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
-         request_timer->data = f;
-         ev_timer_init(request_timer, request_cb, 
-             f->request_delay[f->curr_request], 0.0);
-         ev_timer_start(l, request_timer);
+    } else {
+//\\([0-9]+\\)
+      printf("[%d - %d]: got data\n", f->id, f->curr_request);
+      if (f->size[f->curr_request] == 0) {
+        if (regcomp(&r, "Content-Length\\: \\([0-9][0-9]*\\)\r\n", 0) != 0)
+          perror("regcomp");
+        if (regexec(&r, buffer, 2, m, 0) !=0 ) {
+          printf("[%d - %d]: Match not found\n", f->id, f->curr_request);
         } else {
-	  memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval)); 
-          LOG("+request:%ld.%06d:%u:%u:%f:%f",  
-              tv.tv_sec, tv.tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
-              f->request_delay[f->curr_request]);
-
-          tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f);
+          buffer[m[1].rm_eo] = '\0';
+          f->size[f->curr_request] = (double)strtol(buffer + m[1].rm_so, NULL, 10);
+          printf("[%d - %d]: Match found %f\n", f->id, f->curr_request, f->size[f->curr_request]);
         }
+        regfree(&r);
+      }
+
+      if (t->urls && f->size[f->curr_request] > 0 && f->body[f->curr_request] == 0) {
+        if (regcomp(&r, "\r\n\r\n", 0) != 0) {
+          perror("regcomp");
+        }
+        if (regexec(&r, buffer, 2, m, 0) !=0 ) {
+          printf("[%d - %d]: newline not found\n", f->id, f->curr_request);
+        } else {
+          printf("[%d - %d]: len:%d, found:%d\n", f->id, f->curr_request , rcv, m[0].rm_eo);
+          f->recved[f->curr_request] = rcv - m[0].rm_eo;
+          printf("[%d - %d]: received %d bytes\n", f->id, f->curr_request,  rcv - m[0].rm_eo);
+          f->body[f->curr_request] = 1;
+          printf("[%d - %d]: newline found\n", f->id, f->curr_request);
+        }
+        regfree(&r);
+
+      } else if(!t->urls || (t->urls && f->size[f->curr_request] && f->body[f->curr_request]) ) {
+        printf("[%d - %d]: received %d bytes(looking for %f)\n", 
+            f->id, f->curr_request, len, f->size[f->curr_request]);
+        f->recved[f->curr_request] += (uint32_t)rcv;
+      }
+      gettimeofday(&tv, NULL);
+      // Stop and free watcher if client socket is closing
+      if ( f->size[f->curr_request] > 0.0 && 
+          f->recved[f->curr_request] >= (uint32_t)f->size[f->curr_request]) {
+        printf("[%d - %d]: completed trnasmission %u - %f\n", f->id, 
+            f->curr_request, f->recved[f->curr_request], f->size[f->curr_request]);
+        ev_io_stop(l,w);
+        close(w->fd);
+        //free(w);
+        requests_running--;
+        init_tcp_request(l, f, &tv);
       }
     }
   }

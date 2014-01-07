@@ -18,6 +18,7 @@
 
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <regex.h>
 
 #define PORT_NO 3033
 
@@ -75,6 +76,9 @@ struct traffic_model {
   enum traffic_mode mode;
   uint16_t flows; 
   uint32_t flow_count;
+  char *domain;
+  char **urls;
+  uint32_t url_count;
   struct model flow_arrival;
   struct model request_num;
   struct model request_delay;
@@ -98,7 +102,10 @@ struct tcp_flow {
   uint8_t *send_req; 
   double *request_delay;
   double *size;
+  uint32_t *recved;
+  uint8_t *body;
   struct timeval *start;
+  uint32_t *pages;
 };
 
 struct udp_flow {
