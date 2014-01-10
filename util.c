@@ -111,6 +111,8 @@ tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
     f->pages = NULL;
     get_sample(&t->request_size, f->size, f->requests);
   } else {
+    http_parser_init(&f->parser, HTTP_RESPONSE);
+    f->parser.data = f;
     f->pages = (uint32_t *) xmalloc(f->requests * sizeof(uint32_t));
     get_ix_sample(f->pages, f->requests, t->url_count);
     bzero(f->size, f->requests * sizeof(double));
@@ -120,6 +122,7 @@ tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
 
 void 
 udp_init_flow(struct udp_request *t, int id, int fd, struct sockaddr_in a, struct udp_flow *f) {
+  int i;
   f->curr_request = 0;
 
   get_sample(&t->request_num, &f->requests, 1);
@@ -131,7 +134,7 @@ udp_init_flow(struct udp_request *t, int id, int fd, struct sockaddr_in a, struc
   get_sample(&t->request_delay, f->request_delay, f->requests);
   f->size = (double *)malloc(f->requests * sizeof(double));
   get_sample(&t->request_size, f->size, f->requests);
-  for (int i = 0; i < f->requests; i++) {
+  for (i = 0; i < f->requests; i++) {
     if (f->size[i] > 1500) {
       f->size[i] = 1500;
     }
@@ -221,6 +224,12 @@ init_traffic_model (struct traffic_model *t, const char *file) {
     strncpy(t->logfile, "output.log", 1024);
   else 
     strncpy(t->logfile, name, 1024);
+
+  if(config_lookup_bool(&cfg, "debug", &t->debug) == CONFIG_FALSE) {
+    printf("didn't find debug\n");
+    t->debug = 0;
+  } else 
+    printf("debug=%d\n", t->debug);
 
   if(config_lookup_int64(&cfg, "seed", &t->seed) == CONFIG_FALSE)
     t->seed = 10000;

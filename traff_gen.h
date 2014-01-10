@@ -19,6 +19,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <regex.h>
+#include <string.h>
+#include "http_parser.h"
 
 #define PORT_NO 3033
 
@@ -79,6 +81,7 @@ struct traffic_model {
   char *domain;
   char **urls;
   uint32_t url_count;
+  int debug;
   struct model flow_arrival;
   struct model request_num;
   struct model request_delay;
@@ -99,6 +102,7 @@ struct tcp_flow {
   uint32_t id;
   double requests;
   uint16_t curr_request;
+  http_parser parser;
   uint8_t *send_req; 
   double *request_delay;
   double *size;
