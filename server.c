@@ -247,12 +247,12 @@ read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       free(fl);
       serv.conns--;
       serv.period_finished++;
-      LOG("- %ld.%06d:%d:0.000000:0", fl->end.tv_sec, fl->end.tv_usec, 
+      LOG("- %ld.%06ld:%d:0.000000:0", fl->end.tv_sec, fl->end.tv_usec, 
           fl->id);
     }
     else if (read == sizeof(req_data)) {
       fl->request = req_data;
-      LOG("+ %ld.%06d:%u:%llu", fl->st.tv_sec, fl->st.tv_usec, 
+      LOG("+ %ld.%06ld:%u:%lu", fl->st.tv_sec, fl->st.tv_usec, 
           fl->id, fl->request);
       ev_io_stop(loop,w);
       ev_io_set(w, w->fd, EV_WRITE);
@@ -276,7 +276,7 @@ read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       serv.conns--;
       serv.period_finished++;
       gettimeofday(&fl->end, NULL);
-      LOG("- %ld.%.06d:%ld.%.06d:%d:%.06f:%llu",   
+      LOG("- %ld.%.06ld:%ld.%.06ld:%d:%.06f:%lu",   
           fl->st.tv_sec, fl->st.tv_usec,  
           fl->end.tv_sec, fl->end.tv_usec, fl->id, 
           time_diff(&fl->st, &fl->end), fl->send);
@@ -293,7 +293,7 @@ stats_cb (struct ev_loop *loop, struct ev_timer *t, int revents) {
   struct timeval st;
 //  debug_enter("starts_cb");
   gettimeofday(&st, NULL);
- LOG("stat:%ld.%06d:%llu:%llu:%u", 
+ LOG("stat:%ld.%06ld:%lu:%lu:%u", 
      st.tv_sec, st.tv_usec, serv.tcp_period_bytes, serv.period_finished, 
      serv.conns);
  serv.tcp_period_bytes = 0;

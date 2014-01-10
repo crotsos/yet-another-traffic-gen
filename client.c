@@ -92,6 +92,47 @@ tcp_flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, struct tcp_
   return 0;
 }
 
+void
+init_tcp_request(struct ev_loop *l, struct tcp_flow *f, struct timeval *tv) {
+  struct ev_timer *request_timer;
+  double delay;
+  f->curr_request++;
+  if(f->curr_request >= f->requests) {
+    // schedule next request
+    LOG("-flow:%ld.%06ld:%u",  
+        tv->tv_sec, tv->tv_usec, f->id);
+
+    free(f->size);
+    free(f->request_delay);
+    free(f);
+    if (t->mode == PIPELINE) {
+      request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
+      get_sample(&t->flow_arrival, &delay, 1);
+      ev_timer_init(request_timer, tcp_flow_cb, delay, 0.0);
+      ev_timer_start(l, request_timer);
+    }
+  } else {
+    // schedule next request since we still have requests 
+    http_parser_init(&f->parser, HTTP_RESPONSE);
+    f->parser.data = f;
+    if (f->request_delay[f->curr_request] > 0) {
+      request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
+      request_timer->data = f;
+      ev_timer_init(request_timer, request_cb, 
+          f->request_delay[f->curr_request], 0.0);
+      ev_timer_start(l, request_timer);
+    } else {
+      memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval)); 
+      LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
+          tv->tv_sec, tv->tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
+          f->request_delay[f->curr_request]);
+
+      tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f);
+    }
+  }
+}
+
+
 int
 udp_flow_request (struct ev_loop *loop, uint16_t port) {
   int sd, optval=1;
@@ -240,9 +281,17 @@ udp_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
   }
   hdr = (struct pkt_header *) buffer;
   gettimeofday(&rcv, NULL);
-  printf("%lu.%06u:%u:%u:%f\n", rcv.tv_sec, rcv.tv_usec, hdr->flow_id, hdr->pkt_id, 
+  printf("%lu.%06ld:%u:%u:%f\n", rcv.tv_sec, rcv.tv_usec, hdr->flow_id, hdr->pkt_id, 
       time_diff(&hdr->send, &rcv));
 
+}
+
+int
+http_data(http_parser *p, const char *d, size_t len) {
+  struct tcp_flow *f = (struct tcp_flow *)p->data;
+//  printf("received %lu bytes\n", len);
+  f->recved[f->curr_request] += len;
+  return 0;
 }
 
 /* Accept client requests */
@@ -252,26 +301,39 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
   struct timeval tv;
   char buffer[WINDOW_SIZE];
   struct tcp_flow *f = w->data;
-  struct ev_timer *request_timer;
-  double delay;
   uint64_t len = f->size[f->curr_request];
   ssize_t write;
+//  regex_t r;
+//  regmatch_t m[2];
 
   if(EV_ERROR & revents) {
     perror("got invalid event");
   }
 
   if ((!f->send_req[f->curr_request]) && (EV_WRITE & revents)) {
-    write = send(w->fd, &len, sizeof(len), 0);
-    if (write < sizeof(len)) {
-      perror("send request failed");
-      exit(1);
+    if (f->pages == NULL) {
+      write = send(w->fd, &len, sizeof(len), 0);
+      if (write < sizeof(len)) {
+        perror("send request failed");
+        exit(1);
+      }
+    } else {
+      //constrcut http request
+      if (t->domain) {
+        len = sprintf(buffer, 
+            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nHost: %s\r\nConnection: close\r\nAccept: */*\r\n\r\n", 
+            t->urls[f->pages[f->curr_request]], t->domain);
+      } else {
+        len = printf(buffer, 
+            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nConnection: close\r\nAccept: */*\r\n\r\n", 
+            t->urls[f->pages[f->curr_request]]);
+      }
+      write = send(w->fd, buffer, len, 0);
     }
     f->send_req[f->curr_request] = 1;
     ev_io_stop(l,w);
     ev_io_set(w, w->fd, EV_READ);
     ev_io_start(l,w);
-
   }
 
   if (EV_READ & revents) {
@@ -285,46 +347,54 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       free(w);
       requests_running--;
 
-      LOG("-request:%ld.%06d:%ld.%06d:%u:%u:%f:%f",  
+      if(f->size[f->curr_request]) {
+      LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",  
           f->start[f->curr_request].tv_sec,
           f->start[f->curr_request].tv_usec,
 	  tv.tv_sec, tv.tv_usec, 
           f->id, f->curr_request, f->size[f->curr_request], 
           f->request_delay[f->curr_request]);
+      } else {
+        LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d",  
+            f->start[f->curr_request].tv_sec,
+            f->start[f->curr_request].tv_usec,
+            tv.tv_sec, tv.tv_usec, 
+            f->id, f->curr_request, f->recved[f->curr_request], 
+            f->request_delay[f->curr_request], f->pages[f->curr_request]); 
+      }
       
       if (!running && !requests_running) exit(0); 
+      init_tcp_request(l, f, &tv);
 
-      f->curr_request++;
-      if(f->curr_request >= f->requests) {
-        // schedule next request
-        LOG("-flow:%ld.%06d:%u",  
-            tv.tv_sec, tv.tv_usec, f->id);
-
-        free(f->size);
-        free(f->request_delay);
-        free(f);
-        if (t->mode == PIPELINE) {
-          request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
-          get_sample(&t->flow_arrival, &delay, 1);
-          ev_timer_init(request_timer, tcp_flow_cb, delay, 0.0);
-          ev_timer_start(l, request_timer);
-        }
+    } else {
+//\\([0-9]+\\)
+      if (f->size[f->curr_request] == 0) {
+        if(t->debug) printf("[%d - %d]: got %lu data\n", f->id, f->curr_request, rcv);
+        http_parser_settings settings = {NULL, NULL, NULL, NULL, NULL, NULL, &http_data, NULL};
+        http_parser_execute(&f->parser, &settings, buffer, rcv);
       } else {
-        // schedule next request since we still have requests 
-       if (f->request_delay[f->curr_request] > 0) {
-         request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
-         request_timer->data = f;
-         ev_timer_init(request_timer, request_cb, 
-             f->request_delay[f->curr_request], 0.0);
-         ev_timer_start(l, request_timer);
-        } else {
-	  memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval)); 
-          LOG("+request:%ld.%06d:%u:%u:%f:%f",  
-              tv.tv_sec, tv.tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
-              f->request_delay[f->curr_request]);
+        f->recved[f->curr_request] += (uint32_t)rcv;
+      }
 
-          tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f);
-        }
+      // Stop and free watcher if client socket is closing
+      if (t->urls != NULL && http_body_is_final(&f->parser ) ) {
+        gettimeofday(&tv, NULL);
+        if(t->debug) 
+          printf("[%d - %d]: completed trnasmission %u\n", 
+              f->id, f->curr_request, f->recved[f->curr_request]);
+        ev_io_stop(l,w);
+        close(w->fd);
+        //free(w);
+        requests_running--;
+        LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d",  
+            f->start[f->curr_request].tv_sec,
+            f->start[f->curr_request].tv_usec,
+            tv.tv_sec, tv.tv_usec, 
+            f->id, f->curr_request, f->recved[f->curr_request], 
+            f->request_delay[f->curr_request], f->pages[f->curr_request]);
+      
+        if (!running && !requests_running) exit(0); 
+        init_tcp_request(l, f, &tv);
       }
     }
   }
@@ -342,10 +412,10 @@ tcp_flow_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   f = (struct tcp_flow *)malloc(sizeof(struct tcp_flow));
   tcp_init_flow(t, f);
   gettimeofday(&f->start[f->curr_request], NULL);
-  LOG("+flow:%ld.%06d:%u:%f",  
+  LOG("+flow:%ld.%06ld:%u:%f",  
       tv.tv_sec, tv.tv_usec, f->id, f->requests);
 
-  LOG("+request:%ld.%06d:%u:%u:%f:%f",  
+  LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
       f->start[f->curr_request].tv_sec, 
       f->start[f->curr_request].tv_usec, 
       f->id, f->curr_request, f->size[f->curr_request], 
@@ -373,7 +443,7 @@ request_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   struct tcp_flow *f = timer->data;
 
   gettimeofday(&f->start[f->curr_request], NULL);
-  LOG("+request:%ld.%06d:%u:%u:%f:%f",  
+  LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
       f->start[f->curr_request].tv_sec, 
       f->start[f->curr_request].tv_usec, 
       f->id, f->curr_request, f->size[f->curr_request], 
