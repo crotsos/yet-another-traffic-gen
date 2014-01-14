@@ -39,6 +39,8 @@ enum model_type {
   CONSTANT=1,
   EXPONENTIAL,
   PARETO,
+  WEIBULL,
+  LOGNORMAL,
 };
 
 struct model {

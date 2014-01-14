@@ -101,6 +101,11 @@ init_tcp_request(struct ev_loop *l, struct tcp_flow *f, struct timeval *tv) {
     // schedule next request
     LOG("-flow:%ld.%06ld:%u",  
         tv->tv_sec, tv->tv_usec, f->id);
+    if (t->debug) {
+      printf("-flow:%ld.%06ld:%u\n",  
+          tv->tv_sec, tv->tv_usec, f->id);
+    }
+
 
     free(f->size);
     free(f->request_delay);
@@ -126,6 +131,11 @@ init_tcp_request(struct ev_loop *l, struct tcp_flow *f, struct timeval *tv) {
       LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
           tv->tv_sec, tv->tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
           f->request_delay[f->curr_request]);
+      if(t->debug) {
+        printf("+request:%ld.%06ld:%u:%u:%f:%f\n",  
+            tv->tv_sec, tv->tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
+            f->request_delay[f->curr_request]);
+      }
 
       tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f);
     }
@@ -348,12 +358,20 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       requests_running--;
 
       if(f->size[f->curr_request]) {
-      LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",  
-          f->start[f->curr_request].tv_sec,
-          f->start[f->curr_request].tv_usec,
-	  tv.tv_sec, tv.tv_usec, 
-          f->id, f->curr_request, f->size[f->curr_request], 
-          f->request_delay[f->curr_request]);
+        LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",  
+            f->start[f->curr_request].tv_sec,
+            f->start[f->curr_request].tv_usec,
+            tv.tv_sec, tv.tv_usec, 
+            f->id, f->curr_request, f->size[f->curr_request], 
+            f->request_delay[f->curr_request]);
+        if(t->debug) {
+          printf("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f\n",  
+              f->start[f->curr_request].tv_sec,
+              f->start[f->curr_request].tv_usec,
+              tv.tv_sec, tv.tv_usec, 
+              f->id, f->curr_request, f->size[f->curr_request], 
+              f->request_delay[f->curr_request]);
+        }
       } else {
         LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d",  
             f->start[f->curr_request].tv_sec,
@@ -392,7 +410,16 @@ read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
             tv.tv_sec, tv.tv_usec, 
             f->id, f->curr_request, f->recved[f->curr_request], 
             f->request_delay[f->curr_request], f->pages[f->curr_request]);
-      
+
+        if(t->debug) {
+          printf("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d\n",  
+              f->start[f->curr_request].tv_sec,
+              f->start[f->curr_request].tv_usec,
+              tv.tv_sec, tv.tv_usec, 
+              f->id, f->curr_request, f->recved[f->curr_request], 
+              f->request_delay[f->curr_request], f->pages[f->curr_request]);
+ 
+        }
         if (!running && !requests_running) exit(0); 
         init_tcp_request(l, f, &tv);
       }
@@ -420,6 +447,14 @@ tcp_flow_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
       f->start[f->curr_request].tv_usec, 
       f->id, f->curr_request, f->size[f->curr_request], 
       f->request_delay[f->curr_request]);
+  if (t->debug) 
+    printf("+flow:%ld.%06ld:%u:%f\n+request:%ld.%06ld:%u:%u:%f:%f\n",  
+        tv.tv_sec, tv.tv_usec, f->id, f->requests,
+        f->start[f->curr_request].tv_sec, 
+        f->start[f->curr_request].tv_usec, 
+        f->id, f->curr_request, f->size[f->curr_request], 
+        f->request_delay[f->curr_request]);
+  
   tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f);
 
   if (t->mode == INDEPENDENT) {
@@ -448,6 +483,13 @@ request_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
       f->start[f->curr_request].tv_usec, 
       f->id, f->curr_request, f->size[f->curr_request], 
       f->request_delay[f->curr_request]);
+
+  if (t->debug) 
+    printf("+request:%ld.%06ld:%u:%u:%f:%f\n",  
+        f->start[f->curr_request].tv_sec, 
+        f->start[f->curr_request].tv_usec, 
+        f->id, f->curr_request, f->size[f->curr_request], 
+        f->request_delay[f->curr_request]);
 
     tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f);
   free(timer);
