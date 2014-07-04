@@ -22,8 +22,17 @@
 #include "udp_util.h"
 #include "tcp_util.h"
 
-void ctrl_connect_cb(struct ev_loop *loop, struct ev_io *watcher, int revents);
 static void end_cb (struct ev_loop *, struct ev_timer *, int); 
+
+static void 
+end_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
+  struct traffic_model *t = timer->data;
+  printf("finishing experiment...\nwaiting for %d events\n", 
+      t->requests_running);
+  if (!t->requests_running) exit(0); 
+  t->running = 0;
+}
+
 
 int 
 main(int argc, char **argv) {
@@ -77,27 +86,12 @@ main(int argc, char **argv) {
   ev_timer_init(&end, end_cb, t->duration, 0.0);
   end.data = t;
   ev_timer_start(loop, &end);
+
+  start_ctrl_service(loop, t);
   
   // Start infinite loop
   while (1) 
     ev_loop(loop, 0);
   printf("evio loop returned\n");
   return 0;
-}
-
-
-static void 
-end_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
-  struct traffic_model *t = timer->data;
-  printf("finishing experiment...\nwaiting for %d events\n", 
-      t->requests_running);
-  if (!t->requests_running) exit(0); 
-  t->running = 0;
-}
-
-/**
- * Remote control and stats service.
- * */
-void ctrl_connect_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
-  return;
 }

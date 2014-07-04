@@ -27,5 +27,4 @@ void init_tcp_request(struct ev_loop *l, struct tcp_flow *f,
 void request_cb (struct ev_loop *, struct ev_timer *, int); 
 void tcp_flow_cb (struct ev_loop *, struct ev_timer *, int);
 
-void tcp_accept_cb(struct ev_loop *loop, struct ev_io *watcher, 
-    int revents);
+void tcp_accept_cb(struct ev_loop *, struct ev_io *, int);

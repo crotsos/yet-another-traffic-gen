@@ -175,6 +175,8 @@ void get_sample(struct model *, double *, int);
 char *print_model(struct model *);
 double time_diff (struct timeval *, struct timeval *);
 
+int start_ctrl_service(struct ev_loop *,  struct traffic_model *);
+
 #include "tcp_util.h"
 #include "udp_util.h"
 
