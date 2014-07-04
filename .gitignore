@@ -22,3 +22,5 @@ server
 
 client.log
 server.log
+*.log
+*.cfg

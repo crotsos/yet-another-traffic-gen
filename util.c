@@ -41,6 +41,14 @@ init_rand(struct traffic_model *t) {
   return;
 }
 
+/**
+ * generate random sample acording to the specification of the distribution
+ * model.
+ *
+ * @param m generation model.
+ * @param ret a pointer to a double array where the samples will be stored.
+ * @param len the return array size. 
+ * */
 void
 get_sample(struct model *m, double *ret, int len) {
   int ix;
@@ -64,6 +72,13 @@ get_sample(struct model *m, double *ret, int len) {
     }
 }
 
+/**
+ * Get a random sample from a uniform integer distribution.
+ *
+ * @param ret array to store return samples.
+ * @param len the length of the return array.
+ * @param max The upper bound of the integer distribution
+ * */
 void
 get_ix_sample(uint32_t *ret, int len, uint32_t max) {
   int ix;
@@ -88,15 +103,21 @@ xmalloc(ssize_t len) {
 
 void 
 tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
-  // define how many requests we want
+
+  // store a local pointer to the traffic model 
+  f->t = t;
+
+  // generate a request number sample
   f->curr_request = 0;
   get_sample(&t->request_num, &f->requests, 1);
 
-  // define for reqest inter request delay and size
+  // define for each reqest the inter-request delay and size
   f->send_req = (uint8_t *)xmalloc(f->requests * sizeof(uint8_t));
   bzero(f->send_req, f->requests);
   f->size = (double *)xmalloc(f->requests * sizeof(double));
   f->request_delay = (double *)xmalloc(f->requests * sizeof(double));
+
+  // clear the flow statistics 
   f->start = (struct timeval *)xmalloc(f->requests * sizeof(struct timeval));
   bzero(f->start, f->requests * sizeof(struct timeval));
   f->recved = (uint32_t *)xmalloc(f->requests * sizeof(uint32_t));
@@ -144,8 +165,7 @@ udp_init_flow(struct udp_request *t, int id, int fd, struct sockaddr_in a, struc
 }
 
 char str_model[2000];
-char *
-print_model(struct model *m) {
+char *print_model(struct model *m) {
   switch(m->type) {
     case CONSTANT:
       sprintf(str_model, "CONSTANT(%f)", m->mean);
@@ -213,6 +233,9 @@ init_traffic_model (struct traffic_model *t, const char *file) {
   const char *name;
   char buffer[4086];
 
+  t->requests_running = 0;
+  t->running = 1;
+
   config_init(&cfg);
   if (! config_read_file(&cfg, file)) {
     fprintf(stderr, "%s:%d - %s\n", config_error_file(&cfg),
@@ -244,6 +267,9 @@ init_traffic_model (struct traffic_model *t, const char *file) {
     strncpy(t->host, name, 1024);
   if(config_lookup_int(&cfg, "service.port_start", (int *)&t->port) == CONFIG_FALSE)
     t->port = PORT_NO;
+  if(config_lookup_int(&cfg, "service.ctrl_port", (int *)&t->port) == CONFIG_FALSE)
+    t->ctrl_port = CTRL_PORT;
+
 
   if(config_lookup_int(&cfg, "traffic.flows", (int *)&t->flows) == CONFIG_FALSE)
     t->flows = 1;
