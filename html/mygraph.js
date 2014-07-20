@@ -1,3 +1,5 @@
+floodlight="http://127.0.0.1:8080/";
+
 var m = [20, 120, 20, 120],
     w = 600 - m[1] - m[3],
     h = 400 - m[0] - m[2],
@@ -137,70 +139,39 @@ function toggle(d) {
   }
 }
 
-var graph = new Rickshaw.Graph( {
-    element: document.querySelector("#chart"),
-    width: 300,
-    height: 200,
-    series: [{
-        color: 'steelblue',
-        data: [
-            { x: 0, y: 40 },
-            { x: 1, y: 49 },
-            { x: 2, y: 38 },
-            { x: 3, y: 30 },
-            { x: 4, y: 32 } ]
-    }]
-});
+var graph = [];
+for (var port = 1; port < 5; port++) {
+    graph[port] = new Rickshaw.Graph( {
+        element: document.querySelector("#chart-port"+port),
+        width: 150,
+        height: 150,
+        series: [{
+            color: 'steelblue',
+        data: []
+        }]
+    });
+    graph[port].render();
+}
 
-graph.render();
-
-var graph1 = new Rickshaw.Graph( {
-    element: document.querySelector("#chart-server1"),
-    width: 150,
-    height: 150,
-    series: [{
-        color: 'steelblue',
-        data: [
-            { x: 0, y: 40 },
-            { x: 1, y: 49 },
-            { x: 2, y: 38 },
-            { x: 3, y: 30 },
-            { x: 4, y: 32 } ]
-    }]
-});
-
-graph1.render();
-
-var graph2 = new Rickshaw.Graph( {
-    element: document.querySelector("#chart-server2"),
-    width: 150,
-    height: 150,
-    series: [{
-        color: 'steelblue',
-        data: [
-            { x: 0, y: 40 },
-            { x: 1, y: 49 },
-            { x: 2, y: 38 },
-            { x: 3, y: 30 },
-            { x: 4, y: 32 } ]
-    }]
-});
-
-graph2.render();
-
-var graph3 = new Rickshaw.Graph( {
-    element: document.querySelector("#chart-server3"),
-    width: 150,
-    height: 150,
-    series: [{
-        color: 'steelblue',
-        data: [
-            { x: 0, y: 40 },
-            { x: 1, y: 49 },
-            { x: 2, y: 38 },
-            { x: 3, y: 30 },
-            { x: 4, y: 32 } ]
-    }]
-});
-
-graph3.render();
+// open -a Google\ Chrome --args --disable-web-security
+var count = [0,0,0,0,0];
+var bytes = [0,0,0,0,0];
+setInterval(function () {
+    d3.json(floodlight+"wm/core/switch/all/port/json", function(data) {
+        for (var sw in data) {
+            for (var port in data[sw]) {
+                if (port < 1) continue;
+                if (bytes[port] > 0) {
+                    if (port == 1)
+                        graph[port].series[0].data.push(
+                            {x:count[port]++, y: (8*(data[sw][port]['transmitBytes']-bytes[port])/10e8)});
+                    else
+                        graph[port].series[0].data.push(
+                            {x:count[port]++, y: (8*(data[sw][port]['receiveBytes']-bytes[port])/10e8)});
+                }
+                bytes[port] = (port==1)?data[sw][port]['transmitBytes']:data[sw][port]['receiveBytes'];
+                graph[port].update();
+            }
+        }
+    });
+}, 1000);

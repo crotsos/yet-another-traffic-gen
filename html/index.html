@@ -4,6 +4,7 @@
         <meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
         <link type="text/css" rel="stylesheet" href="rickshaw.min.css"/>
         <link href="//fonts.googleapis.com/css?family=Lato:100italic,100,300italic,300,400italic,400,700italic,700,900italic,900" rel="stylesheet" type="text/css">
+        <script type="text/javascript" src="http://code.jquery.com/jquery-1.11.1.min.js"> </script>
         <script type="text/javascript" src="d3.js"></script>
         <script type="text/javascript" src="d3.layout.js"></script>
         <script type="text/javascript" src="rickshaw.min.js"></script>
@@ -30,7 +31,7 @@
                 <div id="graphs" class="col-lg-7" style="margin:0">
 
                     <div id="latency_place" class="row">
-                        <div id="chart" class="text-centercol-lg-7">
+                        <div id="chart-port1" class="text-centercol-lg-7">
                             <div class="text-center center-block ">Request delay timeserries</div>
 
                         </div> 
@@ -38,15 +39,17 @@
 
                     <div class="text-center row">Throughput timeserries</div>
                     <div id="throughput_place" class="row">
-                        <div id="chart-server1" class="col-lg-3 text-center center-block"><div>Server 1</div></div>
-                        <div id="chart-server2" class="text-center center-block col-lg-3"><div>Server 2</div></div>
-                        <div id="chart-server3" class="text-center center-block col-lg-3"><div>Server 3</div></div>
+                        <div id="chart-port2" class="col-lg-3 text-center center-block"><div>Server 1</div></div>
+                        <div id="chart-port3" class="text-center center-block col-lg-3"><div>Server 2</div></div>
+                        <div id="chart-port4" class="text-center center-block col-lg-3"><div>Server 3</div></div>
                     </div>
 
                 </div>
 
             </div>
         </div>
+
+        <div id="debug"/>
         <script type="text/javascript" src="mygraph.js"></script>
     </body>
 </html>
