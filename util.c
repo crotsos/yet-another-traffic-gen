@@ -16,6 +16,7 @@
  * =====================================================================================
  */
 #include <stdlib.h>
+#include <math.h>
 
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
@@ -58,6 +59,12 @@ get_sample(struct model *m, double *ret, int len) {
         ret[ix] = gsl_ran_pareto((const gsl_rng*)r, m->alpha, m->mean);
         //printf("pareto sample %f (alpha %f mean %f)\n", ret[ix], m->alpha, m->mean);
         break;
+      case WEIBULL:
+        ret[ix] = gsl_ran_weibull((const gsl_rng*)r, m->alpha, m->mean);
+        break;
+      case LOGNORMAL:
+        ret[ix] = gsl_ran_lognormal((const gsl_rng*)r, m->mean, m->alpha);
+        break;
       default:
         printf("Invalid traffic model\n");
         exit(1);
@@ -91,6 +98,7 @@ tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
   // define how many requests we want
   f->curr_request = 0;
   get_sample(&t->request_num, &f->requests, 1);
+  f->requests = round(f->requests);
 
   // define for reqest inter request delay and size
   f->send_req = (uint8_t *)xmalloc(f->requests * sizeof(uint8_t));
@@ -191,6 +199,30 @@ parse_model(config_t *cfg, struct model *m, const char *path) {
     }
   } else if (!strcasecmp(name, "pareto")) { 
     m->type = PARETO;
+    sprintf(field_name, "%s.mean", path); 
+    if(config_lookup_float(cfg, field_name, &m->mean) == CONFIG_FALSE) {
+      printf("undefined %s.mean\n", path);
+      exit(1);
+    }
+    sprintf(field_name, "%s.alpha", path); 
+    if(config_lookup_float(cfg, field_name, &m->alpha) == CONFIG_FALSE) {
+      printf("undefined %s.alpha\n", path);
+      exit(1);
+    }
+  } else if (!strcasecmp(name, "weibull")) { 
+    m->type = WEIBULL;
+    sprintf(field_name, "%s.mean", path); 
+    if(config_lookup_float(cfg, field_name, &m->mean) == CONFIG_FALSE) {
+      printf("undefined %s.mean\n", path);
+      exit(1);
+    }
+    sprintf(field_name, "%s.alpha", path); 
+    if(config_lookup_float(cfg, field_name, &m->alpha) == CONFIG_FALSE) {
+      printf("undefined %s.alpha\n", path);
+      exit(1);
+    }
+  } else if (!strcasecmp(name, "lognormal")) { 
+    m->type = LOGNORMAL;
     sprintf(field_name, "%s.mean", path); 
     if(config_lookup_float(cfg, field_name, &m->mean) == CONFIG_FALSE) {
       printf("undefined %s.mean\n", path);
