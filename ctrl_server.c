@@ -10,15 +10,13 @@
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  YOUR NAME (), 
- *   Organization:  
+ *         Author:  YOUR NAME (),
+ *   Organization:
  *
  * =====================================================================================
  */
 #include <stdlib.h>
 #include <traff_gen.h>
-
-
 
 int on_url(http_parser *p, const char *at, size_t length) {
   char *tmp = malloc(length + 1);
@@ -49,7 +47,6 @@ void ctrl_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       ev_io_stop(l,w);
       free(w);
     } else {
-//\\([0-9]+\\)
       http_parser_settings settings = {NULL, on_url, NULL, NULL, NULL, NULL, NULL, NULL};
       http_parser_execute(&parser, &settings, buffer, rcv);
 
@@ -96,7 +93,7 @@ void ctrl_connect_cb(struct ev_loop *loop, struct ev_io *watcher, int revents) {
 }
 
 /**
- * A function to handle new http connections. 
+ * A function to handle new http connections.
  * TODO: avoid HTTP pipeline.
  * */
 int start_ctrl_service(struct ev_loop *loop,  struct traffic_model *t) {
@@ -124,7 +121,7 @@ int start_ctrl_service(struct ev_loop *loop,  struct traffic_model *t) {
   if (listen(ctrl_fd, 5) < 0) {
     perror("listen error");
     return -1;
-  }  
+  }
   // set SO_REUSEADDR on a socket to true (1):
   setsockopt(ctrl_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof optval);
 
