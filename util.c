@@ -120,7 +120,9 @@ tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
   // clear the flow statistics
   f->start = (struct timeval *)xmalloc(f->requests * sizeof(struct timeval));
   bzero(f->start, f->requests * sizeof(struct timeval));
-  f->recved = (uint32_t *)xmalloc(f->requests * sizeof(uint32_t));
+  f->end = (struct timeval *)xmalloc(f->requests * sizeof(struct timeval));
+  bzero(f->end, f->requests * sizeof(struct timeval));
+   f->recved = (uint32_t *)xmalloc(f->requests * sizeof(uint32_t));
   bzero(f->recved, f->requests * sizeof(uint32_t));
   f->body = (uint8_t *)xmalloc(f->requests * sizeof(uint8_t));
   bzero(f->body, f->requests * sizeof(uint8_t));
@@ -235,6 +237,7 @@ init_traffic_model (struct traffic_model *t, const char *file) {
 
   t->requests_running = 0;
   t->running = 1;
+  TAILQ_INIT(&t->stats);
 
   config_init(&cfg);
   if (! config_read_file(&cfg, file)) {
@@ -265,13 +268,14 @@ init_traffic_model (struct traffic_model *t, const char *file) {
     strncpy(t->host, "127.0.0.1", 1024);
   else
     strncpy(t->host, name, 1024);
-  if(config_lookup_int(&cfg, "service.port_start", (int *)&t->port) == CONFIG_FALSE)
+  if(config_lookup_int(&cfg, "service.port_start", (long int *)&t->port) == CONFIG_FALSE)
     t->port = PORT_NO;
-  if(config_lookup_int(&cfg, "service.ctrl_port", (int *)&t->port) == CONFIG_FALSE)
+  if(config_lookup_int(&cfg, "service.ctrl_port", (long int *)&t->ctrl_port) == CONFIG_FALSE)
     t->ctrl_port = CTRL_PORT;
+  printf("control port set to %d\n", t->ctrl_port);
 
 
-  if(config_lookup_int(&cfg, "traffic.flows", (int *)&t->flows) == CONFIG_FALSE)
+  if(config_lookup_int(&cfg, "traffic.flows", (long int *)&t->flows) == CONFIG_FALSE)
     t->flows = 1;
 
   if (config_lookup_string(&cfg, "traffic.type", &name) == CONFIG_FALSE) {
