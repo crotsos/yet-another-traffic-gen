@@ -1,0 +1,12 @@
+{
+ "name": "Internet",
+ "children": [
+  {
+   "name": "load_balancer",
+   "children": [
+      {"name": "Server1", "size": 3938},
+      {"name": "Server2", "size": 3812}
+     ]
+  }
+ ]
+}
