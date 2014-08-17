@@ -3,15 +3,15 @@
  *
  *       Filename:  tcp_util.c
  *
- *    Description:  
+ *    Description:
  *
  *        Version:  1.0
  *        Created:  04/07/14 14:13:49
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  YOUR NAME (), 
- *   Organization:  
+ *         Author:  YOUR NAME (),
+ *   Organization:
  *
  * =====================================================================================
  */
@@ -22,7 +22,7 @@
  * CLIENT CB
  *
  * ************************************/
-void tcp_flow_cb (struct ev_loop *l, struct ev_timer *timer, 
+void tcp_flow_cb (struct ev_loop *l, struct ev_timer *timer,
     int repi) {
   struct timeval tv;
   struct tcp_flow *f;
@@ -34,13 +34,13 @@ void tcp_flow_cb (struct ev_loop *l, struct ev_timer *timer,
   f = (struct tcp_flow *)malloc(sizeof(struct tcp_flow));
   tcp_init_flow(t, f);
   gettimeofday(&f->start[f->curr_request], NULL);
-  LOG("+flow:%ld.%06ld:%u:%f",  
+  LOG("+flow:%ld.%06ld:%u:%f",
       tv.tv_sec, tv.tv_usec, f->id, f->requests);
 
-  LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
-      f->start[f->curr_request].tv_sec, 
-      f->start[f->curr_request].tv_usec, 
-      f->id, f->curr_request, f->size[f->curr_request], 
+  LOG("+request:%ld.%06ld:%u:%u:%f:%f",
+      f->start[f->curr_request].tv_sec,
+      f->start[f->curr_request].tv_usec,
+      f->id, f->curr_request, f->size[f->curr_request],
       f->request_delay[f->curr_request]);
   tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f, t);
 
@@ -59,10 +59,10 @@ void  request_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   struct traffic_model *t = f->t;
 
   gettimeofday(&f->start[f->curr_request], NULL);
-  LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
-      f->start[f->curr_request].tv_sec, 
-      f->start[f->curr_request].tv_usec, 
-      f->id, f->curr_request, f->size[f->curr_request], 
+  LOG("+request:%ld.%06ld:%u:%u:%f:%f",
+      f->start[f->curr_request].tv_sec,
+      f->start[f->curr_request].tv_usec,
+      f->id, f->curr_request, f->size[f->curr_request],
       f->request_delay[f->curr_request]);
 
     tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f, t);
@@ -70,7 +70,7 @@ void  request_cb (struct ev_loop *l, struct ev_timer *timer, int rep) {
   return;
 }
 
-void init_tcp_request(struct ev_loop *l, struct tcp_flow *f, 
+void init_tcp_request(struct ev_loop *l, struct tcp_flow *f,
     struct timeval *tv) {
   struct ev_timer *request_timer;
   double delay;
@@ -78,12 +78,13 @@ void init_tcp_request(struct ev_loop *l, struct tcp_flow *f,
   f->curr_request++;
   if(f->curr_request >= f->requests) {
     // schedule next request
-    LOG("-flow:%ld.%06ld:%u",  
+    LOG("-flow:%ld.%06ld:%u",
         tv->tv_sec, tv->tv_usec, f->id);
+    TAILQ_INSERT_TAIL(&t->stats, f, entry);
 
-    free(f->size);
-    free(f->request_delay);
-    free(f);
+    // free(f->size);
+    // free(f->request_delay);
+    // free(f);
     if (t->mode == PIPELINE) {
       request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
       get_sample(&t->flow_arrival, &delay, 1);
@@ -92,19 +93,19 @@ void init_tcp_request(struct ev_loop *l, struct tcp_flow *f,
       ev_timer_start(l, request_timer);
     }
   } else {
-    // schedule next request since we still have requests 
+    // schedule next request since we still have requests
     http_parser_init(&f->parser, HTTP_RESPONSE);
     f->parser.data = f;
     if (f->request_delay[f->curr_request] > 0) {
       request_timer = (struct ev_timer*) malloc (sizeof(struct ev_timer));
       request_timer->data = f;
-      ev_timer_init(request_timer, request_cb, 
+      ev_timer_init(request_timer, request_cb,
           f->request_delay[f->curr_request], 0.0);
       ev_timer_start(l, request_timer);
     } else {
-      memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval)); 
-      LOG("+request:%ld.%06ld:%u:%u:%f:%f",  
-          tv->tv_sec, tv->tv_usec, f->id, f->curr_request, f->size[f->curr_request], 
+      memcpy(&f->start[f->curr_request], &tv, sizeof(struct timeval));
+      LOG("+request:%ld.%06ld:%u:%u:%f:%f",
+          tv->tv_sec, tv->tv_usec, f->id, f->curr_request, f->size[f->curr_request],
           f->request_delay[f->curr_request]);
 
       tcp_flow_request(l, PORT_NO, f->size[f->curr_request], f, t);
@@ -115,7 +116,7 @@ void init_tcp_request(struct ev_loop *l, struct tcp_flow *f,
 
 
 int
-tcp_flow_request (struct ev_loop *loop, uint16_t port, uint64_t len, 
+tcp_flow_request (struct ev_loop *loop, uint16_t port, uint64_t len,
     struct tcp_flow *f, struct traffic_model *t) {
   int sd;
   struct sockaddr_in addr;
@@ -127,13 +128,13 @@ tcp_flow_request (struct ev_loop *loop, uint16_t port, uint64_t len,
     return -1;
   }
 
- 
+
 //  printf("dst host %s:%d\n", t->host, t->port);
   bzero(&addr, sizeof(addr));
   addr.sin_family = AF_INET;
   addr.sin_port = htons(t->port);
   addr.sin_addr.s_addr = inet_addr(t->host);
-  
+
   int flags = fcntl(sd, F_GETFL, 0);
   fcntl(sd, F_SETFL, flags | O_NONBLOCK);
 
@@ -141,7 +142,7 @@ tcp_flow_request (struct ev_loop *loop, uint16_t port, uint64_t len,
   if ((connect(sd, (struct sockaddr*) &addr, sizeof(addr)) != 0) && (errno != EINPROGRESS)) {
     perror("bind error");
   }
-  
+
   // Initialize and start a watcher to accepts client requests
   w = (struct ev_io*) malloc (sizeof(struct ev_io));
   ev_io_init(w, client_read_cb, sd, EV_READ | EV_WRITE);
@@ -161,7 +162,7 @@ http_data(http_parser *p, const char *d, size_t len) {
 }
 
 /* Accept client requests */
-void 
+void
 client_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
   ssize_t rcv;
   struct timeval tv;
@@ -187,12 +188,12 @@ client_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
     } else {
       //constrcut http request
       if (t->domain) {
-        len = sprintf(buffer, 
-            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nHost: %s\r\nConnection: close\r\nAccept: */*\r\n\r\n", 
+        len = sprintf(buffer,
+            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nHost: %s\r\nConnection: close\r\nAccept: */*\r\n\r\n",
             t->urls[f->pages[f->curr_request]], t->domain);
       } else {
-        len = printf(buffer, 
-            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nConnection: close\r\nAccept: */*\r\n\r\n", 
+        len = printf(buffer,
+            "GET %s HTTP/1.1\r\nUser-Agent: curl/7.30.0\r\nConnection: close\r\nAccept: */*\r\n\r\n",
             t->urls[f->pages[f->curr_request]]);
       }
       write = send(w->fd, buffer, len, 0);
@@ -207,7 +208,7 @@ client_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
     // Receive message from client socket
     rcv = recv(w->fd, buffer, WINDOW_SIZE, 0);
     if(rcv <= 0) {
-      gettimeofday(&tv, NULL);
+      gettimeofday(&f->end[f->curr_request], NULL);
       // Stop and free watcher if client socket is closing
       close(w->fd);
       ev_io_stop(l,w);
@@ -215,22 +216,22 @@ client_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
       t->requests_running--;
 
       if(f->size[f->curr_request]) {
-      LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",  
+      LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%f:%f",
           f->start[f->curr_request].tv_sec,
           f->start[f->curr_request].tv_usec,
-	  tv.tv_sec, tv.tv_usec, 
-          f->id, f->curr_request, f->size[f->curr_request], 
+          f->end[f->curr_request].tv_sec, f->end[f->curr_request].tv_usec,
+          f->id, f->curr_request, f->size[f->curr_request],
           f->request_delay[f->curr_request]);
       } else {
-        LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d",  
+        LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d",
             f->start[f->curr_request].tv_sec,
             f->start[f->curr_request].tv_usec,
-            tv.tv_sec, tv.tv_usec, 
-            f->id, f->curr_request, f->recved[f->curr_request], 
-            f->request_delay[f->curr_request], f->pages[f->curr_request]); 
+            f->end[f->curr_request].tv_sec, f->end[f->curr_request].tv_usec,
+            f->id, f->curr_request, f->recved[f->curr_request],
+            f->request_delay[f->curr_request], f->pages[f->curr_request]);
       }
-      
-      if (!t->running && !t->requests_running) exit(0); 
+
+      if (!t->running && !t->requests_running) exit(0);
       init_tcp_request(l, f, &tv);
 
     } else {
@@ -245,22 +246,22 @@ client_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
 
       // Stop and free watcher if client socket is closing
       if (t->urls != NULL && http_body_is_final(&f->parser ) ) {
-        gettimeofday(&tv, NULL);
-        if(t->debug) 
-          printf("[%d - %d]: completed trnasmission %u\n", 
+        gettimeofday(&f->end[f->curr_request], NULL);
+        if(t->debug)
+          printf("[%d - %d]: completed trnasmission %u\n",
               f->id, f->curr_request, f->recved[f->curr_request]);
         ev_io_stop(l,w);
         close(w->fd);
         //free(w);
         t->requests_running--;
-        LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d",  
+        LOG("-request:%ld.%06ld:%ld.%06ld:%u:%u:%u:%f:%d",
             f->start[f->curr_request].tv_sec,
             f->start[f->curr_request].tv_usec,
-            tv.tv_sec, tv.tv_usec, 
-            f->id, f->curr_request, f->recved[f->curr_request], 
+            f->end[f->curr_request].tv_sec, f->end[f->curr_request].tv_usec,
+            f->id, f->curr_request, f->recved[f->curr_request],
             f->request_delay[f->curr_request], f->pages[f->curr_request]);
-      
-        if (!t->running && !t->requests_running) exit(0); 
+
+        if (!t->running && !t->requests_running) exit(0);
         init_tcp_request(l, f, &tv);
       }
     }
@@ -275,7 +276,7 @@ client_read_cb(struct ev_loop *l, struct ev_io *w, int revents) {
 char buffer[BUFFER_SIZE];
 
 /* Read client message */
-void 
+void
 srv_read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
   ssize_t read, rcv;
   uint64_t req_data;
@@ -297,12 +298,12 @@ srv_read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       free(fl);
       fl->t->serv.conns--;
       fl->t->serv.period_finished++;
-      LOG("- %ld.%06ld:%d:0.000000:0", fl->end.tv_sec, fl->end.tv_usec, 
+      LOG("- %ld.%06ld:%d:0.000000:0", fl->end.tv_sec, fl->end.tv_usec,
           fl->id);
     }
     else if (read == sizeof(req_data)) {
       fl->request = req_data;
-      LOG("+ %ld.%06ld:%u:%lu", fl->st.tv_sec, fl->st.tv_usec, 
+      LOG("+ %ld.%06ld:%u:%lu", fl->st.tv_sec, fl->st.tv_usec,
           fl->id, fl->request);
       ev_io_stop(loop,w);
       ev_io_set(w, w->fd, EV_WRITE);
@@ -314,7 +315,7 @@ srv_read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
     // Receive message from client socket
 
     read = BUFFER_SIZE;
-    if ((fl->request - fl->send) < BUFFER_SIZE) 
+    if ((fl->request - fl->send) < BUFFER_SIZE)
       read = fl->request - fl->send;
 
     rcv = send(w->fd, buffer, read, 0);
@@ -326,9 +327,9 @@ srv_read_cb(struct ev_loop *loop, struct ev_io *w, int revents){
       fl->t->serv.conns--;
       fl->t->serv.period_finished++;
       gettimeofday(&fl->end, NULL);
-      LOG("- %ld.%.06ld:%ld.%.06ld:%d:%.06f:%lu",   
-          fl->st.tv_sec, fl->st.tv_usec,  
-          fl->end.tv_sec, fl->end.tv_usec, fl->id, 
+      LOG("- %ld.%.06ld:%ld.%.06ld:%d:%.06f:%lu",
+          fl->st.tv_sec, fl->st.tv_usec,
+          fl->end.tv_sec, fl->end.tv_usec, fl->id,
           time_diff(&fl->st, &fl->end), fl->send);
       free(fl);
     } else {

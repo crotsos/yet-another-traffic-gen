@@ -3,15 +3,15 @@
  *
  *       Filename:  util.c
  *
- *    Description:  source file with generic util functions.  
+ *    Description:  source file with generic util functions.
  *
  *        Version:  1.0
  *        Created:  01/01/2014 18:41:39
  *       Revision:  none
  *       Compiler:  gcc
  *
- *         Author:  crotsos (cr409@cl.cam.ac.uk), 
- *   Organization:  
+ *         Author:  crotsos (cr409@cl.cam.ac.uk),
+ *   Organization:
  *
  * =====================================================================================
  */
@@ -29,7 +29,7 @@
 
 gsl_rng * r;
 
-void 
+void
 init_rand(struct traffic_model *t) {
   const gsl_rng_type * T;
 
@@ -47,12 +47,12 @@ init_rand(struct traffic_model *t) {
  *
  * @param m generation model.
  * @param ret a pointer to a double array where the samples will be stored.
- * @param len the return array size. 
+ * @param len the return array size.
  * */
 void
 get_sample(struct model *m, double *ret, int len) {
   int ix;
-  for (ix=0; ix < len; ix ++) 
+  for (ix=0; ix < len; ix ++)
     switch(m->type) {
       case CONSTANT:
         ret[ix] = m->mean;
@@ -86,9 +86,9 @@ get_ix_sample(uint32_t *ret, int len, uint32_t max) {
     ret[ix] = gsl_rng_uniform_int ((const gsl_rng *) r, max);
 }
 
-double 
+double
 time_diff (struct timeval *start, struct timeval *end) {
-  return ( (double)end->tv_sec - (double)start->tv_sec + 
+  return ( (double)end->tv_sec - (double)start->tv_sec +
       (((double)end->tv_usec - (double)start->tv_usec)/(double)1000000)); }
 
 void *
@@ -101,10 +101,10 @@ xmalloc(ssize_t len) {
   return ret;
 }
 
-void 
+void
 tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
 
-  // store a local pointer to the traffic model 
+  // store a local pointer to the traffic model
   f->t = t;
 
   // generate a request number sample
@@ -117,10 +117,12 @@ tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
   f->size = (double *)xmalloc(f->requests * sizeof(double));
   f->request_delay = (double *)xmalloc(f->requests * sizeof(double));
 
-  // clear the flow statistics 
+  // clear the flow statistics
   f->start = (struct timeval *)xmalloc(f->requests * sizeof(struct timeval));
   bzero(f->start, f->requests * sizeof(struct timeval));
-  f->recved = (uint32_t *)xmalloc(f->requests * sizeof(uint32_t));
+  f->end = (struct timeval *)xmalloc(f->requests * sizeof(struct timeval));
+  bzero(f->end, f->requests * sizeof(struct timeval));
+   f->recved = (uint32_t *)xmalloc(f->requests * sizeof(uint32_t));
   bzero(f->recved, f->requests * sizeof(uint32_t));
   f->body = (uint8_t *)xmalloc(f->requests * sizeof(uint8_t));
   bzero(f->body, f->requests * sizeof(uint8_t));
@@ -137,11 +139,11 @@ tcp_init_flow(struct traffic_model *t, struct tcp_flow *f) {
     f->pages = (uint32_t *) xmalloc(f->requests * sizeof(uint32_t));
     get_ix_sample(f->pages, f->requests, t->url_count);
     bzero(f->size, f->requests * sizeof(double));
-  } 
+  }
   f->id = (++t->flow_count);
 }
 
-void 
+void
 udp_init_flow(struct udp_request *t, int id, int fd, struct sockaddr_in a, struct udp_flow *f) {
   int i;
   f->curr_request = 0;
@@ -183,20 +185,20 @@ char *print_model(struct model *m) {
   return str_model;
 }
 
-static void 
+static void
 parse_model(config_t *cfg, struct model *m, const char *path) {
   const char *name;
   char field_name[100];
 
-  sprintf(field_name, "%s.type", path); 
+  sprintf(field_name, "%s.type", path);
   if(config_lookup_string(cfg, field_name, &name) != CONFIG_TRUE) {
     printf("undefined %s.type value\n", path);
     exit(1);
   }
-  
+
   if (!strcasecmp(name, "constant")) {
     m->type = CONSTANT;
-    sprintf(field_name, "%s.mean", path); 
+    sprintf(field_name, "%s.mean", path);
     if(config_lookup_float(cfg, field_name, &m->mean) == CONFIG_FALSE) {
       printf("undefined %s.mean\n", path);
       exit(1);
@@ -204,30 +206,30 @@ parse_model(config_t *cfg, struct model *m, const char *path) {
   }
   else if (!strcasecmp(name, "exponential")) {
     m->type = EXPONENTIAL;
-    sprintf(field_name, "%s.mean", path); 
+    sprintf(field_name, "%s.mean", path);
     if(config_lookup_float(cfg, field_name, &m->mean) == CONFIG_FALSE) {
       printf("undefined %s.mean\n", path);
       exit(1);
     }
-  } else if (!strcasecmp(name, "pareto")) { 
+  } else if (!strcasecmp(name, "pareto")) {
     m->type = PARETO;
-    sprintf(field_name, "%s.mean", path); 
+    sprintf(field_name, "%s.mean", path);
     if(config_lookup_float(cfg, field_name, &m->mean) == CONFIG_FALSE) {
       printf("undefined %s.mean\n", path);
       exit(1);
     }
-    sprintf(field_name, "%s.alpha", path); 
+    sprintf(field_name, "%s.alpha", path);
     if(config_lookup_float(cfg, field_name, &m->alpha) == CONFIG_FALSE) {
       printf("undefined %s.alpha\n", path);
       exit(1);
     }
-  } else { 
+  } else {
     printf("invalid %s.type=%s", path, name);
     exit(1);
   }
 }
 
-void 
+void
 init_traffic_model (struct traffic_model *t, const char *file) {
   config_t cfg;
   const char *name;
@@ -235,23 +237,24 @@ init_traffic_model (struct traffic_model *t, const char *file) {
 
   t->requests_running = 0;
   t->running = 1;
+  TAILQ_INIT(&t->stats);
 
   config_init(&cfg);
   if (! config_read_file(&cfg, file)) {
-    fprintf(stderr, "%s:%d - %s\n", config_error_file(&cfg),
+    fprintf(stderr, "%s:%d - %s\n", file,
         config_error_line(&cfg), config_error_text(&cfg));
     exit(1);
   }
 
   if(config_lookup_string(&cfg, "log", &name) == CONFIG_FALSE)
     strncpy(t->logfile, "output.log", 1024);
-  else 
+  else
     strncpy(t->logfile, name, 1024);
 
   if(config_lookup_bool(&cfg, "debug", &t->debug) == CONFIG_FALSE) {
     printf("didn't find debug\n");
     t->debug = 0;
-  } else 
+  } else
     printf("debug=%d\n", t->debug);
 
   if(config_lookup_int64(&cfg, "seed", &t->seed) == CONFIG_FALSE)
@@ -263,22 +266,23 @@ init_traffic_model (struct traffic_model *t, const char *file) {
 
   if(config_lookup_string(&cfg, "service.host", &name) == CONFIG_FALSE)
     strncpy(t->host, "127.0.0.1", 1024);
-  else 
+  else
     strncpy(t->host, name, 1024);
-  if(config_lookup_int(&cfg, "service.port_start", (int *)&t->port) == CONFIG_FALSE)
+  if(config_lookup_int(&cfg, "service.port_start", (long int *)&t->port) == CONFIG_FALSE)
     t->port = PORT_NO;
-  if(config_lookup_int(&cfg, "service.ctrl_port", (int *)&t->port) == CONFIG_FALSE)
+  if(config_lookup_int(&cfg, "service.ctrl_port", (long int *)&t->ctrl_port) == CONFIG_FALSE)
     t->ctrl_port = CTRL_PORT;
+  printf("control port set to %d\n", t->ctrl_port);
 
 
-  if(config_lookup_int(&cfg, "traffic.flows", (int *)&t->flows) == CONFIG_FALSE)
+  if(config_lookup_int(&cfg, "traffic.flows", (long int *)&t->flows) == CONFIG_FALSE)
     t->flows = 1;
 
   if (config_lookup_string(&cfg, "traffic.type", &name) == CONFIG_FALSE) {
     perror("undefined traffic type");
     exit(1);
   } else {
-    if (!strcasecmp(name, "pipeline")) 
+    if (!strcasecmp(name, "pipeline"))
       t->mode = PIPELINE;
     else if (!strcasecmp(name, "independent"))
       t->mode = INDEPENDENT;
@@ -289,10 +293,10 @@ init_traffic_model (struct traffic_model *t, const char *file) {
     }
   }
 
-  parse_model(&cfg, &t->flow_arrival, "traffic.flow_arrival"); 
-  parse_model(&cfg, &t->request_num, "traffic.request_number"); 
-  parse_model(&cfg, &t->request_delay, "traffic.request_delay"); 
-  parse_model(&cfg, &t->request_size, "traffic.request_size"); 
+  parse_model(&cfg, &t->flow_arrival, "traffic.flow_arrival");
+  parse_model(&cfg, &t->request_num, "traffic.request_number");
+  parse_model(&cfg, &t->request_delay, "traffic.request_delay");
+  parse_model(&cfg, &t->request_size, "traffic.request_size");
 
   if (config_lookup_string(&cfg, "traffic.request_pages.pages", &name) == CONFIG_FALSE) {
     printf("pure tcp traffic\n");
